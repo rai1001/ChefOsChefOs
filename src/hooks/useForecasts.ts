@@ -34,13 +34,16 @@ export function useForecasts(options?: { startDate?: string; endDate?: string; d
   const today = new Date();
   const defaultStart = format(today, "yyyy-MM-dd");
   const defaultEnd = format(addDays(today, options?.days || 14), "yyyy-MM-dd");
+  const hotelId = useCurrentHotelId();
 
   return useQuery({
-    queryKey: ["forecasts", options?.startDate || defaultStart, options?.endDate || defaultEnd],
+    queryKey: ["forecasts", hotelId, options?.startDate || defaultStart, options?.endDate || defaultEnd],
     queryFn: async () => {
+      if (!hotelId) throw new Error("No hay hotel seleccionado");
       const { data, error } = await supabase
         .from("forecasts")
         .select("*")
+        .eq("hotel_id", hotelId)
         .gte("forecast_date", options?.startDate || defaultStart)
         .lte("forecast_date", options?.endDate || defaultEnd)
         .order("forecast_date", { ascending: true });
@@ -56,13 +59,16 @@ export function useUpcomingForecasts(days: number = 7) {
   // Include past 30 days to show recently imported forecasts
   const startDate = format(subDays(today, 30), "yyyy-MM-dd");
   const endDate = format(addDays(today, days), "yyyy-MM-dd");
+  const hotelId = useCurrentHotelId();
 
   return useQuery({
-    queryKey: ["forecasts", "upcoming", days],
+    queryKey: ["forecasts", "upcoming", hotelId, days],
     queryFn: async () => {
+      if (!hotelId) throw new Error("No hay hotel seleccionado");
       const { data, error } = await supabase
         .from("forecasts")
         .select("*")
+        .eq("hotel_id", hotelId)
         .gte("forecast_date", startDate)
         .lte("forecast_date", endDate)
         .order("forecast_date", { ascending: true });
@@ -144,24 +150,25 @@ export function useUpdateForecast() {
 export function useBulkUpsertForecasts() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const hotelId = useCurrentHotelId();
 
   return useMutation({
     mutationFn: async (forecasts: ForecastInsert[]) => {
       if (!forecasts || forecasts.length === 0) return [];
+      if (!hotelId) throw new Error("No hay hotel seleccionado");
 
       // Requisito: "quedarse siempre con la última importación".
       // Para evitar acumulados en dashboard, sustituimos por completo la previsión existente.
       const { error: deleteError } = await supabase
         .from("forecasts")
         .delete()
-        // PostgREST exige un filtro; esto equivale a borrar todas las filas.
-        .neq("id", "00000000-0000-0000-0000-000000000000");
+        .eq("hotel_id", hotelId);
 
       if (deleteError) throw deleteError;
 
       const { data, error } = await supabase
         .from("forecasts")
-        .insert(forecasts)
+        .insert(forecasts.map((f) => ({ ...f, hotel_id: hotelId })))
         .select();
 
       if (error) throw error;
