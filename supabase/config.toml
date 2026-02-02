@@ -1,0 +1,13 @@
+project_id = "ynwzlgbodwipezihpvvr"
+
+[functions.parse-menu-image]
+verify_jwt = false
+
+[functions.parse-delivery-note]
+verify_jwt = false
+
+[functions.send-invitation-email]
+verify_jwt = false
+
+[functions.ai-assistant]
+verify_jwt = false
