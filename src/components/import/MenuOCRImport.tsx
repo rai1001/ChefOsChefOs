@@ -63,11 +63,9 @@ export function MenuOCRImport({ onImport }: MenuOCRImportProps) {
 
     setLoading(true);
     try {
-      // Extract base64 data
-      const base64Data = preview.split(',')[1];
-
       const { data, error } = await supabase.functions.invoke('parse-menu-image', {
-        body: { imageBase64: base64Data },
+        // Send full Data URL so backend can reliably infer mime type.
+        body: { imageBase64: preview },
       });
 
       if (error) throw error;
