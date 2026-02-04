@@ -1,8 +1,17 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Select,
   SelectContent,
@@ -15,36 +24,44 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ChevronLeft, ChevronRight, Plus, Sun, Moon, Sunset, Calendar } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, Loader2, Moon, Sun, Sunset } from "lucide-react";
 import { 
-  format, 
-  startOfMonth, 
-  endOfMonth, 
-  eachDayOfInterval, 
-  addMonths, 
-  subMonths,
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  format,
   getDate,
-  isWeekend
+  isWeekend,
+  startOfMonth,
+  subMonths,
 } from "date-fns";
 import { es } from "date-fns/locale";
-import { employeesStore } from "@/lib/stores";
-import { ShiftType, Employee } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useEvents } from "@/hooks/useEvents";
-
-// Mock shift assignments for demo
-const mockShiftAssignments: Record<string, ShiftType | null> = {};
+import { useRequireHotel } from "@/hooks/useCurrentHotel";
+import { useStaff, Staff } from "@/hooks/useStaff";
+import {
+  useDeleteStaffShiftAssignment,
+  useStaffShiftAssignments,
+  useUpsertStaffShiftAssignment,
+} from "@/hooks/useStaffShiftAssignments";
+import { dbShiftToUi, makeShiftKey, uiShiftToDb, UiShiftType } from "@/lib/staffShiftAssignments";
 
 const Shifts = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
-  const employees = employeesStore.getAll();
-  const departments = [...new Set(employees.map(e => e.department))];
+  const { hasHotel, error: hotelError } = useRequireHotel();
+  const { data: staffList = [], isLoading: staffLoading } = useStaff();
 
-  const filteredEmployees = departmentFilter === "all" 
-    ? employees 
-    : employees.filter(e => e.department === departmentFilter);
+  const roles = useMemo(() => {
+    return [...new Set(staffList.map((s) => s.role))].sort((a, b) => a.localeCompare(b));
+  }, [staffList]);
+
+  const filteredStaff = useMemo(() => {
+    if (roleFilter === "all") return staffList;
+    return staffList.filter((s) => s.role === roleFilter);
+  }, [roleFilter, staffList]);
 
   const days = useMemo(() => {
     const start = startOfMonth(currentMonth);
@@ -56,6 +73,13 @@ const Shifts = () => {
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
   const { data: events = [] } = useEvents({ startDate, endDate });
+
+  const { data: shiftAssignments = [], isLoading: shiftsLoading } = useStaffShiftAssignments({
+    startDate,
+    endDate,
+  });
+  const upsertShift = useUpsertStaffShiftAssignment();
+  const deleteShift = useDeleteStaffShiftAssignment();
 
   // Create a map of dates with events
   const eventsMap = useMemo(() => {
@@ -74,7 +98,15 @@ const Shifts = () => {
   const firstFortnight = days.filter(d => getDate(d) <= 15);
   const secondFortnight = days.filter(d => getDate(d) > 15);
 
-  const getShiftIcon = (shift: ShiftType | null) => {
+  const shiftsByKey = useMemo(() => {
+    const map = new Map<string, (typeof shiftAssignments)[number]>();
+    shiftAssignments.forEach((a) => {
+      map.set(makeShiftKey(a.staff_id, a.shift_date), a);
+    });
+    return map;
+  }, [shiftAssignments]);
+
+  const getShiftIcon = (shift: UiShiftType | null) => {
     if (!shift) return null;
     switch (shift) {
       case "M": return <Sun className="h-3 w-3 text-warning" />;
@@ -83,7 +115,7 @@ const Shifts = () => {
     }
   };
 
-  const getShiftColor = (shift: ShiftType | null) => {
+  const getShiftColor = (shift: UiShiftType | null) => {
     if (!shift) return "";
     switch (shift) {
       case "M": return "bg-warning/20 text-warning-foreground";
@@ -92,16 +124,54 @@ const Shifts = () => {
     }
   };
 
-  // Generate random shifts for demo
-  const getShift = (employeeId: string, date: Date): ShiftType | null => {
-    const key = `${employeeId}-${format(date, "yyyy-MM-dd")}`;
-    if (mockShiftAssignments[key] !== undefined) {
-      return mockShiftAssignments[key];
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState<{ staff: Staff; date: string } | null>(null);
+  const [selectedShift, setSelectedShift] = useState<UiShiftType | null>(null);
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+
+  const openEditor = (staff: Staff, date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    const existing = shiftsByKey.get(makeShiftKey(staff.id, dateStr));
+
+    setEditing({ staff, date: dateStr });
+    setSelectedShift(existing ? dbShiftToUi(existing.shift_type) : null);
+    setStartTime(existing?.start_time ? String(existing.start_time).slice(0, 5) : "");
+    setEndTime(existing?.end_time ? String(existing.end_time).slice(0, 5) : "");
+    setEditOpen(true);
+  };
+
+  const closeEditor = () => {
+    setEditOpen(false);
+    setEditing(null);
+    setSelectedShift(null);
+    setStartTime("");
+    setEndTime("");
+  };
+
+  const saveShift = async () => {
+    if (!editing) return;
+
+    const existing = shiftsByKey.get(makeShiftKey(editing.staff.id, editing.date));
+    if (!selectedShift) {
+      if (existing) {
+        await deleteShift.mutateAsync({ staffId: editing.staff.id, shiftDate: editing.date });
+      }
+      closeEditor();
+      return;
     }
-    if (isWeekend(date)) {
-      return Math.random() > 0.7 ? (["M", "T", "N"][Math.floor(Math.random() * 3)] as ShiftType) : null;
-    }
-    return Math.random() > 0.2 ? (["M", "T", "N"][Math.floor(Math.random() * 3)] as ShiftType) : null;
+
+    const dbShift = uiShiftToDb(selectedShift);
+    if (!dbShift) return;
+
+    await upsertShift.mutateAsync({
+      staff_id: editing.staff.id,
+      shift_date: editing.date,
+      shift_type: dbShift,
+      start_time: startTime || null,
+      end_time: endTime || null,
+    });
+    closeEditor();
   };
 
   const renderFortnightTable = (fortnight: Date[], label: string) => (
@@ -170,23 +240,25 @@ const Shifts = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredEmployees.map((employee) => (
-              <tr key={employee.id} className="border-b border-border last:border-0">
+            {filteredStaff.map((staff) => (
+              <tr key={staff.id} className="border-b border-border last:border-0">
                 <td className="sticky left-0 bg-card p-2">
                   <div className="flex items-center gap-2">
                     <Avatar className="h-6 w-6">
                       <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                        {employee.name.split(" ").map(n => n[0]).join("")}
+                        {staff.full_name.split(" ").map(n => n[0]).join("")}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="text-xs font-medium truncate">{employee.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{employee.role}</p>
+                      <p className="text-xs font-medium truncate">{staff.full_name}</p>
+                      <p className="text-[10px] text-muted-foreground">{staff.role}</p>
                     </div>
                   </div>
                 </td>
                 {fortnight.map((day) => {
-                  const shift = getShift(employee.id, day);
+                  const dateStr = format(day, "yyyy-MM-dd");
+                  const assignment = shiftsByKey.get(makeShiftKey(staff.id, dateStr));
+                  const shift = assignment ? dbShiftToUi(assignment.shift_type) : null;
                   return (
                     <td 
                       key={day.toISOString()} 
@@ -195,16 +267,16 @@ const Shifts = () => {
                         isWeekend(day) && "bg-muted/50"
                       )}
                     >
-                      {shift ? (
-                        <div className={cn(
-                          "flex items-center justify-center h-6 w-6 mx-auto rounded",
-                          getShiftColor(shift)
-                        )}>
-                          {getShiftIcon(shift)}
-                        </div>
-                      ) : (
-                        <div className="h-6 w-6 mx-auto" />
-                      )}
+                      <button
+                        type="button"
+                        className={cn(
+                          "h-6 w-6 mx-auto rounded flex items-center justify-center transition-colors",
+                          shift ? getShiftColor(shift) : "hover:bg-muted/60"
+                        )}
+                        onClick={() => openEditor(staff, day)}
+                      >
+                        {shift ? getShiftIcon(shift) : null}
+                      </button>
                     </td>
                   );
                 })}
@@ -221,6 +293,30 @@ const Shifts = () => {
       title="Turnos" 
       subtitle="Vista doble quincena"
     >
+      {!hasHotel ? (
+        <div className="flex h-[50vh] items-center justify-center">
+          <div className="text-center">
+            <h3 className="font-display text-xl font-semibold mb-2">Sin hotel seleccionado</h3>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              {hotelError || "Debes crear o seleccionar un hotel para gestionar los turnos"}
+            </p>
+          </div>
+        </div>
+      ) : staffLoading || shiftsLoading ? (
+        <div className="flex items-center justify-center h-40">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : staffList.length === 0 ? (
+        <div className="flex h-[50vh] items-center justify-center rounded-2xl border border-dashed border-border">
+          <div className="text-center">
+            <h3 className="font-display text-xl font-semibold mb-2">Sin personal registrado</h3>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              Añade empleados en el módulo Personal para poder asignar turnos.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
@@ -247,24 +343,21 @@ const Shifts = () => {
             </Button>
           </div>
 
-          {/* Department Filter */}
-          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-            <SelectTrigger className="w-40 h-9">
-              <SelectValue placeholder="Departamento" />
+          {/* Role Filter */}
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="w-44 h-9">
+              <SelectValue placeholder="Rol" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {departments.map((dept) => (
-                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+              {roles.map((r) => (
+                <SelectItem key={r} value={r}>{r}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <Button size="sm" className="h-9">
-          <Plus className="h-4 w-4 mr-2" />
-          Asignar Turnos
-        </Button>
+        <p className="text-sm text-muted-foreground">Toca una celda para asignar un turno</p>
       </div>
 
       {/* Legend */}
@@ -301,6 +394,62 @@ const Shifts = () => {
         {renderFortnightTable(firstFortnight, "Primera Quincena (1-15)")}
         {renderFortnightTable(secondFortnight, "Segunda Quincena (16-" + days.length + ")")}
       </div>
+        </>
+      )}
+
+      <Dialog open={editOpen} onOpenChange={(open) => (open ? null : closeEditor())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Asignar turno</DialogTitle>
+            <DialogDescription>
+              {editing ? `${editing.staff.full_name} - ${editing.date}` : "Selecciona una celda"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Turno</Label>
+              <Select
+                value={selectedShift ?? "none"}
+                onValueChange={(v) => setSelectedShift(v === "none" ? null : (v as UiShiftType))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona turno" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin turno</SelectItem>
+                  <SelectItem value="M">Mañana</SelectItem>
+                  <SelectItem value="T">Tarde</SelectItem>
+                  <SelectItem value="N">Noche</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Hora inicio</Label>
+                <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Hora fin</Label>
+                <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-between gap-2 sm:justify-between">
+            <Button variant="outline" onClick={closeEditor} disabled={upsertShift.isPending || deleteShift.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={saveShift} disabled={upsertShift.isPending || deleteShift.isPending || !editing}>
+              {(upsertShift.isPending || deleteShift.isPending) && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };
