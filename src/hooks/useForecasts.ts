@@ -30,6 +30,31 @@ export interface ForecastInsert {
   notes?: string | null;
 }
 
+function normalizeForecastForImport(forecast: ForecastInsert): ForecastInsert | null {
+  if (!forecast.forecast_date) return null;
+  return {
+    forecast_date: forecast.forecast_date,
+    hotel_occupancy: forecast.hotel_occupancy ?? 0,
+    breakfast_pax: forecast.breakfast_pax ?? 0,
+    half_board_pax: forecast.half_board_pax ?? 0,
+    full_board_pax: forecast.full_board_pax ?? 0,
+    extras_pax: forecast.extras_pax ?? 0,
+    predicted_occupancy: forecast.predicted_occupancy ?? null,
+    notes: forecast.notes ?? null,
+  };
+}
+
+function dedupeForecastsByDate(forecasts: ForecastInsert[]): ForecastInsert[] {
+  const byDate = new Map<string, ForecastInsert>();
+  for (const forecast of forecasts) {
+    const normalized = normalizeForecastForImport(forecast);
+    if (!normalized) continue;
+    // Latest row wins when the same date appears multiple times in the import file.
+    byDate.set(normalized.forecast_date, normalized);
+  }
+  return [...byDate.values()].sort((a, b) => a.forecast_date.localeCompare(b.forecast_date));
+}
+
 export function useForecasts(options?: { startDate?: string; endDate?: string; days?: number }) {
   const today = new Date();
   const defaultStart = format(today, "yyyy-MM-dd");
@@ -156,6 +181,8 @@ export function useBulkUpsertForecasts() {
     mutationFn: async (forecasts: ForecastInsert[]) => {
       if (!forecasts || forecasts.length === 0) return [];
       if (!hotelId) throw new Error("No hay hotel seleccionado");
+      const uniqueForecasts = dedupeForecastsByDate(forecasts);
+      if (uniqueForecasts.length === 0) return [];
 
       // Requisito: "quedarse siempre con la última importación".
       // Para evitar acumulados en dashboard, sustituimos por completo la previsión existente.
@@ -168,7 +195,7 @@ export function useBulkUpsertForecasts() {
 
       const { data, error } = await supabase
         .from("forecasts")
-        .insert(forecasts.map((f) => ({ ...f, hotel_id: hotelId })))
+        .insert(uniqueForecasts.map((f) => ({ ...f, hotel_id: hotelId })))
         .select();
 
       if (error) throw error;
