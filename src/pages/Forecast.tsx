@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { ForecastCard } from "@/components/forecast/ForecastCard";
 import { ForecastXLSXImport } from "@/components/import/ForecastXLSXImport";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table, 
@@ -14,68 +11,40 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { TrendingUp, TrendingDown, Coffee, Save, Upload } from "lucide-react";
-import { format, parseISO, isToday } from "date-fns";
+import { Coffee, TrendingUp, Users } from "lucide-react";
+import { format, parseISO, isToday, isTomorrow, addDays, subDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { cn } from "@/lib/utils";
-import { forecastsStore, getUpcomingForecasts, getWeekForecasts } from "@/lib/stores";
-import { useToast } from "@/hooks/use-toast";
+import { useForecasts, useUpcomingForecasts } from "@/hooks/useForecasts";
 
 const Forecast = () => {
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [actualValue, setActualValue] = useState<string>("");
-  const { toast } = useToast();
+  const [historyDays] = useState(30);
+  const today = new Date();
+  const startDate = format(subDays(today, historyDays), "yyyy-MM-dd");
+  const endDate = format(addDays(today, 30), "yyyy-MM-dd");
 
-  // Forecast import is now handled directly by the component
+  const { data: upcomingForecasts = [] } = useUpcomingForecasts(7);
+  const { data: historyForecasts = [] } = useForecasts({ startDate, endDate });
 
-  const allForecasts = forecastsStore.getAll();
-  const upcomingForecasts = getUpcomingForecasts(7);
-  const weekForecasts = getWeekForecasts();
-  
-  // Calculate stats
-  const weekTotal = weekForecasts.reduce((sum, f) => sum + f.breakfasts, 0);
-  const weekActual = weekForecasts.reduce((sum, f) => sum + (f.actual_breakfasts || 0), 0);
-  const weekDelta = weekForecasts
-    .filter(f => f.actual_breakfasts !== undefined)
-    .reduce((sum, f) => sum + (f.actual_breakfasts! - f.breakfasts), 0);
-  
-  const avgAccuracy = weekForecasts.filter(f => f.actual_breakfasts !== undefined).length > 0
-    ? Math.round(100 - Math.abs(weekDelta / weekForecasts.filter(f => f.actual_breakfasts !== undefined).length))
-    : null;
+  const weekBreakfasts = upcomingForecasts.reduce((sum, item) => sum + (item.breakfast_pax ?? 0), 0);
+  const weekOccupancy = upcomingForecasts.reduce((sum, item) => sum + (item.hotel_occupancy ?? 0), 0);
+  const weekHalfBoard = upcomingForecasts.reduce((sum, item) => sum + (item.half_board_pax ?? 0), 0);
+  const weekExtras = upcomingForecasts.reduce((sum, item) => sum + (item.extras_pax ?? 0), 0);
 
-  const handleSaveActual = () => {
-    const value = parseInt(actualValue);
-    if (!isNaN(value) && selectedDate) {
-      const forecast = allForecasts.find(f => f.forecast_date === selectedDate);
-      if (forecast) {
-        forecastsStore.update(forecast.id, {
-          actual_breakfasts: value,
-          delta: value - forecast.breakfasts
-        });
-        setIsRegisterOpen(false);
-        setActualValue("");
-      }
-    }
+  const sortedHistory = [...historyForecasts].sort((a, b) =>
+    b.forecast_date.localeCompare(a.forecast_date),
+  );
+
+  const getDayLabel = (dateIso: string) => {
+    const date = parseISO(dateIso);
+    if (isToday(date)) return "Hoy";
+    if (isTomorrow(date)) return "Mañana";
+    return format(date, "EEEE", { locale: es });
   };
-
-  const forecastsWithDelta = allForecasts
-    .filter(f => f.actual_breakfasts !== undefined)
-    .sort((a, b) => b.forecast_date.localeCompare(a.forecast_date));
 
   return (
     <MainLayout 
-      title="Previsión de Desayunos" 
-      subtitle="Ocupación y servicios previstos vs reales"
+      title="Previsión de Desayunos"
+      subtitle="Previsión de servicios basada en importación"
     >
       {/* Stats Summary */}
       <div className="grid gap-4 sm:grid-cols-4 mb-6">
@@ -84,46 +53,36 @@ const Forecast = () => {
             <Coffee className="h-4 w-4" />
             Previsto semana
           </div>
-          <p className="font-display text-2xl font-semibold">{weekTotal}</p>
+          <p className="font-display text-2xl font-semibold">{weekBreakfasts}</p>
           <p className="text-xs text-muted-foreground">desayunos</p>
+        </div>
+        
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+            <Users className="h-4 w-4" />
+            Ocupación semana
+          </div>
+          <p className="font-display text-2xl font-semibold">{weekOccupancy}</p>
+          <p className="text-xs text-muted-foreground">habitaciones</p>
         </div>
         
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <TrendingUp className="h-4 w-4" />
-            Real registrado
+            Media pensión
           </div>
-          <p className="font-display text-2xl font-semibold">{weekActual}</p>
-          <p className="text-xs text-muted-foreground">desayunos</p>
-        </div>
-        
-        <div className={cn(
-          "rounded-xl border p-4 shadow-sm",
-          weekDelta > 0 ? "border-success/30 bg-success/5" : 
-          weekDelta < 0 ? "border-destructive/30 bg-destructive/5" : 
-          "border-border bg-card"
-        )}>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            {weekDelta >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-            Delta semana
-          </div>
-          <p className={cn(
-            "font-display text-2xl font-semibold",
-            weekDelta > 0 ? "text-success" : weekDelta < 0 ? "text-destructive" : ""
-          )}>
-            {weekDelta > 0 ? "+" : ""}{weekDelta}
-          </p>
-          <p className="text-xs text-muted-foreground">diferencia</p>
+          <p className="font-display text-2xl font-semibold">{weekHalfBoard}</p>
+          <p className="text-xs text-muted-foreground">pax MP</p>
         </div>
         
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            Precisión
+            Extras semana
           </div>
           <p className="font-display text-2xl font-semibold">
-            {avgAccuracy !== null ? `${avgAccuracy}%` : "—"}
+            {weekExtras}
           </p>
-          <p className="text-xs text-muted-foreground">promedio</p>
+          <p className="text-xs text-muted-foreground">extras pax</p>
         </div>
       </div>
 
@@ -132,61 +91,55 @@ const Forecast = () => {
         <h2 className="font-display text-lg font-semibold">Próximos 7 días</h2>
         <div className="flex items-center gap-2">
           <ForecastXLSXImport />
-          <Dialog open={isRegisterOpen} onOpenChange={setIsRegisterOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="h-9">
-                <Save className="h-4 w-4 mr-2" />
-                Registrar real
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Registrar desayunos reales</DialogTitle>
-                <DialogDescription>
-                  Ingresa el número real de desayunos servidos
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="date">Fecha</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="actual">Desayunos servidos</Label>
-                  <Input
-                    id="actual"
-                    type="number"
-                    placeholder="Ej: 95"
-                    value={actualValue}
-                    onChange={(e) => setActualValue(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsRegisterOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleSaveActual}>Guardar</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <Badge variant="outline" className="h-9 px-3 flex items-center">
+            Métrica principal: desayunos
+          </Badge>
         </div>
       </div>
 
-      {/* Forecast Cards Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 mb-8">
-        {upcomingForecasts.map((forecast, index) => (
-          <ForecastCard
-            key={forecast.id}
-            forecast={forecast}
-            delay={index * 50}
-          />
-        ))}
+        {upcomingForecasts.map((forecast, index) => {
+          const date = parseISO(forecast.forecast_date);
+          return (
+            <div
+              key={forecast.id}
+              className="rounded-xl border border-border bg-card p-4 shadow-sm transition-all duration-300 hover:shadow-md animate-fade-in"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-medium capitalize">{getDayLabel(forecast.forecast_date)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {format(date, "d MMM", { locale: es })}
+                  </p>
+                </div>
+                {isToday(date) && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    HOY
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Desayunos</span>
+                  <span className="font-semibold text-primary">{forecast.breakfast_pax ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Ocupación</span>
+                  <span className="font-medium">{forecast.hotel_occupancy ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">MP</span>
+                  <span className="font-medium">{forecast.half_board_pax ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Extras</span>
+                  <span className="font-medium">{forecast.extras_pax ?? 0}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
         {upcomingForecasts.length === 0 && (
           <div className="col-span-full flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
             <div className="text-center">
@@ -201,64 +154,45 @@ const Forecast = () => {
         )}
       </div>
 
-      {/* Delta History Table */}
+      {/* Historical Table */}
       <div className="rounded-2xl border border-border bg-card shadow-sm">
         <div className="p-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Histórico Delta (Previsto vs Real)</h3>
-          <p className="text-sm text-muted-foreground">Comparativa de previsiones con registros reales</p>
+          <h3 className="font-display text-lg font-semibold">Histórico de Previsión</h3>
+          <p className="text-sm text-muted-foreground">Desayunos y ocupación por fecha</p>
         </div>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Fecha</TableHead>
-              <TableHead className="text-right">Huéspedes</TableHead>
-              <TableHead className="text-right">Previsto</TableHead>
-              <TableHead className="text-right">Real</TableHead>
-              <TableHead className="text-right">Delta</TableHead>
-              <TableHead className="text-right">%</TableHead>
+              <TableHead className="text-right">Ocupación</TableHead>
+              <TableHead className="text-right">Desayunos</TableHead>
+              <TableHead className="text-right">MP</TableHead>
+              <TableHead className="text-right">Extras</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {forecastsWithDelta.slice(0, 10).map((forecast) => {
-              const delta = forecast.actual_breakfasts! - forecast.breakfasts;
-              const deltaPercent = forecast.breakfasts > 0 
-                ? Math.round((delta / forecast.breakfasts) * 100) 
-                : 0;
-              
-              return (
-                <TableRow key={forecast.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {format(parseISO(forecast.forecast_date), "d MMM", { locale: es })}
-                      </span>
-                      {isToday(parseISO(forecast.forecast_date)) && (
-                        <Badge variant="secondary" className="text-[10px]">Hoy</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">{forecast.guests}</TableCell>
-                  <TableCell className="text-right">{forecast.breakfasts}</TableCell>
-                  <TableCell className="text-right font-medium">{forecast.actual_breakfasts}</TableCell>
-                  <TableCell className={cn(
-                    "text-right font-medium",
-                    delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : ""
-                  )}>
-                    {delta > 0 ? "+" : ""}{delta}
-                  </TableCell>
-                  <TableCell className={cn(
-                    "text-right",
-                    delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : ""
-                  )}>
-                    {deltaPercent > 0 ? "+" : ""}{deltaPercent}%
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {forecastsWithDelta.length === 0 && (
+            {sortedHistory.slice(0, 30).map((forecast) => (
+              <TableRow key={forecast.id}>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {format(parseISO(forecast.forecast_date), "d MMM", { locale: es })}
+                    </span>
+                    {isToday(parseISO(forecast.forecast_date)) && (
+                      <Badge variant="secondary" className="text-[10px]">Hoy</Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">{forecast.hotel_occupancy ?? 0}</TableCell>
+                <TableCell className="text-right font-medium text-primary">{forecast.breakfast_pax ?? 0}</TableCell>
+                <TableCell className="text-right">{forecast.half_board_pax ?? 0}</TableCell>
+                <TableCell className="text-right">{forecast.extras_pax ?? 0}</TableCell>
+              </TableRow>
+            ))}
+            {sortedHistory.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  No hay registros con datos reales
+                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  No hay previsiones cargadas
                 </TableCell>
               </TableRow>
             )}
