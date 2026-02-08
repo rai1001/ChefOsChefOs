@@ -208,28 +208,31 @@ OCR de albaranes de entrega.
 **Request Body**:
 ```json
 {
-  "image": "data:image/jpeg;base64,/9j/4AAQ..."
+  "imageBase64": "data:image/jpeg;base64,/9j/4AAQ...",
+  "expectedItems": [
+    { "name": "Salmón fresco", "quantity": 10, "unit": "kg" }
+  ]
 }
 ```
 
 **Response**:
 ```json
 {
-  "supplier": "Distribuciones García",
-  "date": "2025-02-01",
-  "documentNumber": "ALB-2025-0123",
-  "items": [
-    {
-      "name": "Salmón fresco",
-      "quantity": 10,
-      "unit": "kg",
-      "unitPrice": 15.50,
-      "total": 155.00
-    }
-  ],
-  "subtotal": 155.00,
-  "tax": 16.28,
-  "total": 171.28
+  "success": true,
+  "data": {
+    "supplier_name": "Distribuciones García",
+    "document_number": "ALB-2025-0123",
+    "date": "2025-02-01",
+    "items": [
+      { "name": "Salmón fresco", "quantity": 10, "unit": "kg" }
+    ]
+  },
+  "reconciliation": {
+    "matched": [],
+    "missing": [],
+    "unexpected": [],
+    "has_issues": false
+  }
 }
 ```
 
@@ -259,6 +262,135 @@ Envío de invitaciones por email.
   "messageId": "abc123"
 }
 ```
+
+---
+
+### `generate-purchase-suggestions`
+
+Motor determinista para sugerencias de compra.
+
+**Endpoint**: `POST /generate-purchase-suggestions`
+
+**Request Body**:
+```json
+{
+  "signals": [
+    {
+      "product_id": "uuid",
+      "product_name": "Tomate",
+      "forecast_qty": 12,
+      "event_qty": 4,
+      "menu_qty": 8,
+      "current_qty": 5,
+      "safety_stock_qty": 2,
+      "lead_time_days": 1,
+      "daily_demand_rate": 2.5,
+      "pack_size": 1
+    }
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "suggestions": [
+    {
+      "product_id": "uuid",
+      "product_name": "Tomate",
+      "required_qty": 21.5,
+      "current_qty": 5,
+      "recommended_qty": 22,
+      "reason": "Demanda 26.50 y stock 5.00"
+    }
+  ]
+}
+```
+
+---
+
+### `daily-ops-briefing`
+
+Briefing diario determinista (texto). Se usa para la versión no-IA y como fallback.
+
+**Endpoint**: `POST /daily-ops-briefing`
+
+**Request Body**:
+```json
+{
+  "date": "2026-02-08",
+  "plannedTaskCount": 18,
+  "unplannedTaskCount": 3,
+  "eventsCount": 4
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "briefing": "Plan diario 2026-02-08:\n- Tareas planificadas: 18\n- Tareas sin capacidad: 3\n- Eventos del día: 4\n- Recomendación: reasignar personal en los turnos críticos."
+}
+```
+
+---
+
+### `send-ops-alert`
+
+Envía alertas operativas por suscripción (email). Si falta `RESEND_API_KEY`, devuelve envío en modo `dry_run`.
+
+**Endpoint**: `POST /send-ops-alert`
+
+**Response**:
+```json
+{
+  "success": true,
+  "sent": [
+    {
+      "email": "chef@hotel.com",
+      "hotel_id": "uuid",
+      "frequency": "daily",
+      "dry_run": false
+    }
+  ]
+}
+```
+
+---
+
+### `agent-bridge` (clawtbot / agentes firmados)
+
+Puente de conexión para agentes externos con firma Ed25519.  
+`verify_jwt = false` en esta función porque se autentica con firma y replay-guard.
+
+**Endpoint base**: `POST|GET /agent-bridge/*`
+
+**Headers requeridos**:
+```http
+x-agent-id: clawtbot-prod
+x-agent-ts: 1739013902
+x-agent-nonce: 3f7c1a48-0d25-48f0-99d2-9eb6fef83f8f
+x-agent-signature: base64_signature
+Content-Type: application/json
+```
+
+**Cadena canónica a firmar**:
+```text
+{METHOD_UPPER}
+{PATH}
+{QUERY_SORTED}
+{SHA256_HEX_BODY}
+{TIMESTAMP_SECONDS}
+{NONCE}
+{AGENT_ID}
+```
+
+**Scopes soportados**:
+- `GET /agent-bridge/events` → `read:events`
+- `GET /agent-bridge/tasks` → `read:tasks`
+- `POST /agent-bridge/tasks/complete` → `write:tasks`
+- `GET /agent-bridge/inventory` → `read:inventory`
 
 ---
 
@@ -433,6 +565,58 @@ const { data: upcoming } = useUpcomingForecasts(7);
 // Importar (reemplaza existentes)
 const bulkUpsert = useBulkUpsertForecasts();
 await bulkUpsert.mutateAsync(forecastsArray);
+```
+
+### Operación Avanzada (R1-R4)
+
+```typescript
+// Flags por hotel (IA OFF por defecto)
+const { data: flags } = useFeatureFlags();
+const setFlag = useSetFeatureFlag();
+await setFlag.mutateAsync({ key: "ai_daily_briefing", enabled: false });
+
+// Suscripciones de alertas operativas
+const { data: subscriptions } = useAlertSubscriptions();
+const upsertSubscription = useUpsertAlertSubscription();
+await upsertSubscription.mutateAsync({ frequency: "daily", enabled: true, sendAt: "07:00" });
+
+// Conexiones de agentes (clawtbot)
+const { data: connections } = useAgentConnections();
+const createConnection = useCreateAgentConnection();
+await createConnection.mutateAsync({
+  agent_name: "Clawtbot",
+  agent_id: "clawtbot-prod",
+  public_key: "base64_raw_ed25519_public_key",
+  allowed_scopes: ["read:events", "read:tasks", "write:tasks", "read:inventory"],
+});
+
+// Bandeja de aprobaciones
+const { data: pendingApprovals } = useApprovals("pending");
+const resolveApproval = useResolveApproval();
+await resolveApproval.mutateAsync({ id: "approval-id", status: "approved", note: "OK" });
+
+// Versionado de menús
+const { data: versions } = useMenuVersions(menuId);
+const snapshotMenu = useCreateMenuVersion();
+await snapshotMenu.mutateAsync(menuId);
+
+// Mermas de inventario
+const createWaste = useCreateInventoryWaste();
+await createWaste.mutateAsync({
+  product_id: "prod-id",
+  qty: 2.5,
+  cause: "expired",
+  note: "Caducidad lote cámara 2",
+});
+
+// Desviación de coste evento
+const { data: eventVariance } = useEventCostVariance({ startDate: "2026-02-01", endDate: "2026-02-29" });
+
+// Sugerencias de compra (deterministas)
+const { data: suggestionsBySupplier } = usePurchaseSuggestions();
+
+// Plan diario determinista con briefing opcional
+const { data: dailyPlan } = useDailyPlan("2026-02-08");
 ```
 
 ---

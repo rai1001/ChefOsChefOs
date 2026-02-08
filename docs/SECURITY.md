@@ -16,6 +16,7 @@ Este documento describe las medidas de seguridad implementadas y las mejores pr�
 8. [Secrets Management](#secrets-management)
 9. [Auditoría](#auditoría)
 10. [Incidentes de Seguridad](#incidentes-de-seguridad)
+11. [Novedades de Seguridad (R1-R4, 2026-02-08)](#novedades-de-seguridad-r1-r4-2026-02-08)
 
 ---
 
@@ -496,6 +497,66 @@ Para reportar vulnerabilidades:
 
 ---
 
+## 🔐 Novedades de Seguridad (R1-R4, 2026-02-08)
+
+### Feature Flags sensibles en OFF por defecto
+
+Los flags operativos y de IA se inicializan en `false` por hotel:
+
+- `ai_purchase_suggestions`
+- `ai_daily_briefing`
+- `ai_menu_recommender`
+- `ai_ops_alert_copy`
+- `clawtbot_integration`
+
+Esto reduce exposición inicial y obliga activación explícita por `admin/super_admin`.
+
+### Firma de conexión para agentes (`agent-bridge`)
+
+`agent-bridge` opera con firma Ed25519 y anti-replay, no con JWT de usuario.
+
+- Headers obligatorios: `x-agent-id`, `x-agent-ts`, `x-agent-nonce`, `x-agent-signature`
+- Ventana de tiempo: ±60 segundos
+- Anti-replay: tabla `agent_nonces` con expiración
+- Control de alcance: `allowed_scopes` por conexión
+- Auditoría: cada operación inserta registro en `ops_audit_log`
+
+Cadena canónica firmada:
+
+```text
+METHOD
+PATH
+QUERY_CANONICAL
+SHA256_HEX_BODY
+TIMESTAMP_SECONDS
+NONCE
+AGENT_ID
+```
+
+### Flujos críticos con aprobación explícita
+
+Cambios con umbral económico (compras y menús) usan:
+
+- `approval_policies`
+- `approval_requests`
+- `approval_events`
+
+Cuando se supera el umbral, la operación queda en estado pendiente y se registra evento auditable.
+
+### Auditoría operativa centralizada
+
+`ops_audit_log` captura mutaciones operativas clave (compras, inventario, tareas, bridge de agentes), con:
+
+- `hotel_id`
+- `entity`
+- `action`
+- `payload` JSON
+- `actor_user_id` opcional
+
+Este registro se usa para trazabilidad e investigación de incidentes.
+
+---
+
 ## 📊 Resumen de Controles
 
 | Control | Implementado | Verificación |
@@ -508,5 +569,6 @@ Para reportar vulnerabilidades:
 | Secrets seguros | ✅ | Cloud Vault |
 | Multi-tenancy | ✅ | hotel_id en queries |
 | Auditoría | ✅ | Timestamps + created_by |
+| Firma de agente Ed25519 | ✅ | Timestamp + nonce + scope |
 | Encriptación TLS | ✅ | Supabase default |
 | Protección SQL | ✅ | Supabase client |

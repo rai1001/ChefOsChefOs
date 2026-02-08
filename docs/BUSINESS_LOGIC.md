@@ -16,6 +16,7 @@ Este documento describe las reglas de negocio, flujos operativos y procesos auto
 8. [Tareas de Producción](#tareas-de-producción)
 9. [Invitaciones y Onboarding](#invitaciones-y-onboarding)
 10. [Integraciones IA](#integraciones-ia)
+11. [Backlog R1-R4 (2026-02-08)](#backlog-r1-r4-2026-02-08)
 
 ---
 
@@ -651,3 +652,105 @@ El asistente puede sugerir menús basándose en:
 - React Query maneja invalidación automática
 - Optimistic updates para UX fluida
 - Refetch en focus/reconnect
+
+---
+
+## 🚀 Backlog R1-R4 (2026-02-08)
+
+### 1. Flags de capacidad (IA opcional, OFF por defecto)
+
+Las funcionalidades con dependencia de IA quedan controladas por `hotel_feature_flags`.
+
+- `ai_purchase_suggestions`
+- `ai_daily_briefing`
+- `ai_menu_recommender`
+- `ai_ops_alert_copy`
+- `clawtbot_integration`
+
+Regla: si el flag está en `false`, el sistema usa flujo determinista o no muestra la acción avanzada.
+
+### 2. Sugerencias de compra deterministas
+
+La recomendación se calcula con señales de demanda y stock:
+
+```text
+demanda = forecast + eventos + menús + safety_stock + (lead_time * demanda_diaria)
+required_qty = max(demanda - stock_actual, 0)
+recommended_qty = redondeo_por_pack(required_qty)
+```
+
+Salida agrupada por proveedor para acelerar creación de pedidos.
+
+### 3. Mermas reales de inventario
+
+Nueva captura de merma (`inventory_waste`) con causa y nota.
+
+Reglas:
+- Registrar merma descuenta stock del lote asociado (trigger).
+- Cada merma genera movimiento de inventario tipo `waste`.
+- Métrica mensual de merma visible en Inventario.
+
+### 4. Desviación de coste por evento
+
+Comparación entre:
+
+- Baseline (`event_cost_baseline`) calculado desde escandallo del menú.
+- Coste actual (`event_cost_actual`) registrado por operación.
+
+Vista `event_cost_variance_view` expone `delta_amount` y `delta_pct`.
+
+### 5. Aprobaciones por umbral
+
+Compras y menús pueden requerir aprobación según políticas activas (`approval_policies`).
+
+Reglas:
+- Si `amount >= threshold_amount`, crear `approval_request`.
+- La entidad queda en estado pendiente (ej. `pending_approval` en compras).
+- Resolución en bandeja (`approved`, `rejected`, `cancelled`) con evento en `approval_events`.
+
+### 6. Versionado de menús
+
+Cada snapshot guarda estado completo del menú:
+
+- Cabecera en `menu_versions`
+- Items en `menu_item_versions`
+
+Permite diff de ingredientes/cantidades/coste entre versiones.
+
+### 7. Plan diario de operación
+
+Planificación diaria con asignación por turno/capacidad:
+
+- Input: tareas pendientes + eventos + disponibilidad de staff.
+- Output: tareas planificadas y tareas sin capacidad.
+- Briefing opcional por flag IA (`ai_daily_briefing`); fallback determinista siempre disponible.
+
+### 8. Alertas operativas por suscripción
+
+Usuarios pueden configurar frecuencia `daily/weekly` en `alert_subscriptions`.
+
+`send-ops-alert` genera resumen con:
+- stock crítico
+- compras urgentes
+- tareas vencidas
+- eventos sin menú
+
+### 9. Bridge seguro para agentes (clawtbot)
+
+`agent-bridge` habilita consumo/escritura acotada por scopes:
+
+- `read:events`
+- `read:tasks`
+- `write:tasks`
+- `read:inventory`
+
+La conexión se valida con firma Ed25519, timestamp y nonce para prevenir replay.
+
+### 10. Móvil/PWA y quick actions
+
+Soporte PWA (manifest + service worker) y barra móvil de operaciones rápidas.
+
+Rutas rápidas habilitadas por querystring:
+- Compras: `?quick=new-purchase`
+- Inventario: `?quick=new-lot` / `?quick=waste`
+- Tareas: `?quick=new-task`
