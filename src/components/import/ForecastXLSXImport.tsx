@@ -34,23 +34,79 @@ export function ForecastXLSXImport() {
 
   const bulkUpsert = useBulkUpsertForecasts();
 
-  const parseExcelDate = (excelDate: number | string): string | null => {
-    if (typeof excelDate === 'number') {
-      // Excel date serial number
-      const date = new Date((excelDate - 25569) * 86400 * 1000);
-      return date.toISOString().split('T')[0];
+  const parseDateValue = (value: unknown): string | null => {
+    if (value == null || value === "") return null;
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const utcDays = Math.floor(value - 25569);
+      const utcValue = utcDays * 86400;
+      const dateInfo = new Date(utcValue * 1000);
+      if (!Number.isNaN(dateInfo.getTime())) return dateInfo.toISOString().slice(0, 10);
     }
-    if (typeof excelDate === 'string' && excelDate.includes('/')) {
-      // Format: M/D/YY
-      const parts = excelDate.split('/');
-      if (parts.length === 3) {
-        const month = parts[0].padStart(2, '0');
-        const day = parts[1].padStart(2, '0');
-        const year = parseInt(parts[2]) < 50 ? `20${parts[2]}` : `19${parts[2]}`;
-        return `${year}-${month}-${day}`;
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+
+    if (typeof value === "string") {
+      const raw = value.trim();
+      if (!raw) return null;
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+      const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (slash) {
+        const left = Number(slash[1]);
+        const right = Number(slash[2]);
+        let year = Number(slash[3]);
+        if (year < 100) year += year < 50 ? 2000 : 1900;
+
+        // Excel exports may come as dd/mm/yyyy or mm/dd/yyyy; choose unambiguous mapping.
+        let day = left;
+        let month = right;
+        if (left <= 12 && right > 12) {
+          day = right;
+          month = left;
+        }
+
+        const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const date = new Date(`${iso}T00:00:00Z`);
+        if (!Number.isNaN(date.getTime())) return iso;
       }
     }
+
     return null;
+  };
+
+  const parseNumericValue = (value: unknown): number => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") {
+      const raw = value.trim();
+      if (!raw) return 0;
+
+      // Handle european thousands/decimal separators, e.g. 5.572 or 52,94
+      const normalized = /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(raw)
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(",", ".");
+
+      const sanitized = normalized.replace(/[^\d.-]/g, "");
+      const parsed = Number(sanitized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  const getFirstAvailable = (row: Record<string, unknown>, keys: string[]): unknown => {
+    for (const key of keys) {
+      if (row[key] != null && row[key] !== "") return row[key];
+    }
+    return null;
+  };
+
+  const dedupeByDate = (rows: ParsedForecast[]): ParsedForecast[] => {
+    const map = new Map<string, ParsedForecast>();
+    for (const row of rows) map.set(row.forecast_date, row);
+    return [...map.values()].sort((a, b) => a.forecast_date.localeCompare(b.forecast_date));
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,41 +126,49 @@ export function ForecastXLSXImport() {
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, unknown>[];
-
       const forecasts: ParsedForecast[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: null }) as Array<Record<string, unknown>>;
 
-      for (const row of jsonData) {
-        // Look for date column
-        const dateValue = row['Fecha'] ?? row['fecha'] ?? row['Date'];
-        const date = parseExcelDate(dateValue as number | string);
-        
-        if (!date) continue;
+        for (const row of jsonData) {
+          const date = parseDateValue(
+            getFirstAvailable(row, ["Fecha", "fecha", "Date", "Día", "dia", "DIA"]),
+          );
+          if (!date) continue;
 
-        // Extract occupancy data
-        const occupancy = parseInt(String(row['habs.'] ?? row['Confirmada'] ?? row['Ocupación'] ?? 0));
-        const breakfast = parseInt(String(row['Desayunos'] ?? row['desayunos'] ?? 0));
-        const dinners = parseInt(String(row['Cenas'] ?? row['cenas'] ?? 0));
-        const lunches = parseInt(String(row['Comidas'] ?? row['comidas'] ?? 0));
+          // Occupancy should prioritize confirmed rooms, not capacity.
+          const occupancy = Math.round(
+            parseNumericValue(
+              getFirstAvailable(row, ["Confirmada", "confirmada", "Ocupación", "ocupacion", "habs.", "habs"]),
+            ),
+          );
+          const breakfasts = Math.round(
+            parseNumericValue(getFirstAvailable(row, ["Desayunos", "desayunos"])),
+          );
+          const dinners = Math.round(
+            parseNumericValue(getFirstAvailable(row, ["Cenas", "cenas", "MP", "mp"])),
+          );
+          const lunches = Math.round(
+            parseNumericValue(getFirstAvailable(row, ["Comidas", "comidas", "Extras", "extras"])),
+          );
 
-        forecasts.push({
-          forecast_date: date,
-          hotel_occupancy: occupancy,
-          breakfast_pax: breakfast,
-          half_board_pax: dinners,
-          extras_pax: lunches,
-        });
+          forecasts.push({
+            forecast_date: date,
+            hotel_occupancy: occupancy,
+            breakfast_pax: breakfasts,
+            half_board_pax: dinners,
+            extras_pax: lunches,
+          });
+        }
       }
 
-      // Sort by date
-      forecasts.sort((a, b) => a.forecast_date.localeCompare(b.forecast_date));
+      const dedupedForecasts = dedupeByDate(forecasts);
 
-      setParsedForecasts(forecasts);
+      setParsedForecasts(dedupedForecasts);
       toast({
         title: "Archivo procesado",
-        description: `Se encontraron ${forecasts.length} días de previsión`,
+        description: `Se encontraron ${dedupedForecasts.length} días de previsión`,
       });
     } catch (error) {
       console.error('Error parsing XLSX:', error);
