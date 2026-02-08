@@ -1,5 +1,13 @@
 import { useState, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -297,6 +305,9 @@ export function GeneratePurchaseOrderDialog({ menu, menuIndex }: GeneratePurchas
             <ShoppingCart className="h-5 w-5" />
             Generar Pedidos de Compra
           </DialogTitle>
+          <DialogDescription>
+            Selecciona productos detectados en el menú para crear pedidos agrupados por proveedor.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

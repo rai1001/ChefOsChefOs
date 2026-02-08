@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const AI_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assistant`;
+const normalizeEnvUrl = (value: string | undefined): string =>
+  (value ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
+
+const AI_FUNCTION_URL = `${normalizeEnvUrl(import.meta.env.VITE_SUPABASE_URL)}/functions/v1/ai-assistant`;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as
   | string
   | undefined;

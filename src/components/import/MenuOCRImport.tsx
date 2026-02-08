@@ -4,7 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Camera, Loader2, Upload, FileImage } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +132,9 @@ export function MenuOCRImport({ onImport }: MenuOCRImportProps) {
       <DialogContent className="max-w-3xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="font-display">Importar Menú desde Imagen</DialogTitle>
+          <DialogDescription>
+            Carga una imagen del menú para extraer automáticamente secciones y platos.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 md:grid-cols-2">
