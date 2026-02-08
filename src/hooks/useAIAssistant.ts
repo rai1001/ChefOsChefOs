@@ -1,6 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 const AI_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assistant`;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as
+  | string
+  | undefined;
 
 interface Message {
   role: "user" | "assistant";
@@ -11,16 +15,44 @@ interface UseAIAssistantOptions {
   type?: "chat" | "suggest_menu";
 }
 
+async function getFunctionAuthHeaders(): Promise<Record<string, string>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+  if (!accessToken) {
+    throw new Error("Debes iniciar sesión para usar el asistente de IA");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  if (SUPABASE_PUBLISHABLE_KEY) {
+    headers.apikey = SUPABASE_PUBLISHABLE_KEY;
+  }
+
+  return headers;
+}
+
 export function useAIAssistant(options: UseAIAssistantOptions = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const sendMessage = useCallback(
     async (userMessage: string) => {
       setError(null);
       const userMsg: Message = { role: "user", content: userMessage };
-      setMessages((prev) => [...prev, userMsg]);
+      const allMessages = [...messagesRef.current, userMsg];
+      setMessages(allMessages);
+      messagesRef.current = allMessages;
       setIsLoading(true);
 
       let assistantContent = "";
@@ -30,23 +62,24 @@ export function useAIAssistant(options: UseAIAssistantOptions = {}) {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
-            return prev.map((m, i) =>
+            const next = prev.map((m, i) =>
               i === prev.length - 1 ? { ...m, content: assistantContent } : m
             );
+            messagesRef.current = next;
+            return next;
           }
-          return [...prev, { role: "assistant", content: assistantContent }];
+          const next = [...prev, { role: "assistant", content: assistantContent }];
+          messagesRef.current = next;
+          return next;
         });
       };
 
       try {
-        const allMessages = [...messages, userMsg];
+        const headers = await getFunctionAuthHeaders();
 
         const response = await fetch(AI_FUNCTION_URL, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
+          headers,
           body: JSON.stringify({
             messages: allMessages,
             type: options.type || "chat",
@@ -120,12 +153,22 @@ export function useAIAssistant(options: UseAIAssistantOptions = {}) {
         console.error("AI Assistant error:", err);
         setError(err instanceof Error ? err.message : "Error desconocido");
         // Remove the user message if we couldn't get a response
-        setMessages((prev) => prev.filter((m) => m !== userMsg));
+        setMessages((prev) => {
+          const next = [...prev];
+          const idx = next.lastIndexOf(userMsg);
+          if (idx !== -1) {
+            next.splice(idx, 1);
+          } else if (next[next.length - 1]?.role === "user") {
+            next.pop();
+          }
+          messagesRef.current = next;
+          return next;
+        });
       } finally {
         setIsLoading(false);
       }
     },
-    [messages, options.type]
+    [options.type]
   );
 
   const clearMessages = useCallback(() => {
@@ -147,12 +190,11 @@ export async function getAISuggestion(
   prompt: string,
   type: "suggest_menu" | "chat" = "chat"
 ): Promise<string> {
+  const headers = await getFunctionAuthHeaders();
+
   const response = await fetch(AI_FUNCTION_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
+    headers,
     body: JSON.stringify({
       messages: [{ role: "user", content: prompt }],
       type,

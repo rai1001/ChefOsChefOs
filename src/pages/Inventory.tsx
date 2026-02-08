@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ import {
 import { format, parseISO, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useSearchParams } from "react-router-dom";
 import {
   useInventoryLots,
   useInventoryStats,
@@ -60,6 +61,8 @@ import { useProducts } from "@/hooks/useProducts";
 import { useSuppliers } from "@/hooks/useProducts";
 import { DeliveryNoteImport } from "@/components/inventory/DeliveryNoteImport";
 import { BarcodeScanner } from "@/components/inventory/BarcodeScanner";
+import { WasteCaptureDialog } from "@/components/inventory/WasteCaptureDialog";
+import { useInventoryWaste } from "@/hooks/useInventoryWaste";
 
 type FilterType = "all" | "expiring" | "critical";
 
@@ -71,6 +74,8 @@ const Inventory = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isOCROpen, setIsOCROpen] = useState(false);
   const [scanMode, setScanMode] = useState<"entry" | "exit" | null>(null);
+  const [isWasteOpen, setIsWasteOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     product_id: "",
@@ -86,12 +91,26 @@ const Inventory = () => {
 
   const { data: lots = [], isLoading } = useInventoryLots();
   const { data: stats } = useInventoryStats();
+  const { data: waste = [] } = useInventoryWaste();
   const { data: products = [] } = useProducts();
   const { data: suppliers = [] } = useSuppliers();
 
   const createLot = useCreateInventoryLot();
   const updateLot = useUpdateInventoryLot();
   const deleteLot = useDeleteInventoryLot();
+  const monthlyWaste = waste
+    .filter((record) => record.recorded_at.startsWith(format(new Date(), "yyyy-MM")))
+    .reduce((sum, record) => sum + (record.qty || 0), 0);
+
+  useEffect(() => {
+    const quick = searchParams.get("quick");
+    if (quick === "waste") {
+      setIsWasteOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("quick");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const getDaysUntilExpiry = (expiryDate: string | null) => {
     if (!expiryDate) return Infinity;
@@ -181,7 +200,7 @@ const Inventory = () => {
       subtitle="Control de lotes y caducidades"
     >
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4 mb-6">
+      <div className="grid gap-4 sm:grid-cols-5 mb-6">
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <Warehouse className="h-4 w-4" />
@@ -222,6 +241,14 @@ const Inventory = () => {
             Ubicaciones
           </div>
           <p className="font-display text-2xl font-semibold">{stats?.uniqueLocations || 0}</p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+            <AlertTriangle className="h-4 w-4" />
+            Merma mes
+          </div>
+          <p className="font-display text-2xl font-semibold">{monthlyWaste.toFixed(2)}</p>
         </div>
       </div>
 
@@ -277,6 +304,15 @@ const Inventory = () => {
           <Button variant="outline" size="sm" className="h-9 text-warning border-warning/30 hover:bg-warning/10" onClick={() => setScanMode("exit")}>
             <ArrowUpFromLine className="h-4 w-4 mr-2" />
             Salida
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-destructive border-destructive/30 hover:bg-destructive/10"
+            onClick={() => setIsWasteOpen(true)}
+          >
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            Merma
           </Button>
           <Button size="sm" className="h-9" onClick={handleOpenCreate}>
             <Plus className="h-4 w-4 mr-2" />
@@ -561,6 +597,8 @@ const Inventory = () => {
           mode={scanMode}
         />
       )}
+
+      <WasteCaptureDialog open={isWasteOpen} onOpenChange={setIsWasteOpen} />
     </MainLayout>
   );
 };

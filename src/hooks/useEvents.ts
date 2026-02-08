@@ -39,9 +39,13 @@ export interface EventInsert {
 }
 
 export function useEvents(options?: { startDate?: string; endDate?: string }) {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["events", options?.startDate, options?.endDate],
+    queryKey: ["events", hotelId, options?.startDate, options?.endDate],
     queryFn: async () => {
+      if (!hotelId) return [];
+
       let query = supabase
         .from("events")
         .select(`
@@ -49,6 +53,7 @@ export function useEvents(options?: { startDate?: string; endDate?: string }) {
           venue:venues(id, name, capacity),
           menu:menus(id, name)
         `)
+        .eq("hotel_id", hotelId)
         .order("event_date", { ascending: true });
 
       if (options?.startDate) {
@@ -62,37 +67,50 @@ export function useEvents(options?: { startDate?: string; endDate?: string }) {
       if (error) throw error;
       return data as EventWithRelations[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useVenues() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["venues"],
+    queryKey: ["venues", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [];
+
       const { data, error } = await supabase
         .from("venues")
         .select("*")
+        .eq("hotel_id", hotelId)
         .order("name");
 
       if (error) throw error;
       return data;
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useMenus() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["menus"],
+    queryKey: ["menus", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [];
+
       const { data, error } = await supabase
         .from("menus")
         .select("*")
+        .eq("hotel_id", hotelId)
         .eq("is_active", true)
         .order("name");
 
       if (error) throw error;
       return data;
     },
+    enabled: !!hotelId,
   });
 }
 

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentHotelId } from "@/hooks/useCurrentHotel";
 import { addDays, format } from "date-fns";
+import { useOpsTelemetry } from "@/hooks/useOpsTelemetry";
 
 export interface InventoryLot {
   id: string;
@@ -43,9 +44,13 @@ export interface InventoryLotInsert {
 }
 
 export function useInventoryLots(options?: { expiringWithinDays?: number }) {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["inventory_lots", options?.expiringWithinDays],
+    queryKey: ["inventory_lots", hotelId, options?.expiringWithinDays],
     queryFn: async () => {
+      if (!hotelId) return [] as InventoryLotWithRelations[];
+
       let query = supabase
         .from("inventory_lots")
         .select(`
@@ -53,6 +58,7 @@ export function useInventoryLots(options?: { expiringWithinDays?: number }) {
           product:products(id, name),
           supplier:suppliers(id, name)
         `)
+        .eq("hotel_id", hotelId)
         .gt("quantity", 0)
         .order("expiry_date", { ascending: true });
 
@@ -65,16 +71,19 @@ export function useInventoryLots(options?: { expiringWithinDays?: number }) {
       if (error) throw error;
       return data as InventoryLotWithRelations[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useExpiringLots(days: number = 7) {
+  const hotelId = useCurrentHotelId();
   const today = format(new Date(), "yyyy-MM-dd");
   const limitDate = format(addDays(new Date(), days), "yyyy-MM-dd");
 
   return useQuery({
-    queryKey: ["inventory_lots", "expiring", days],
+    queryKey: ["inventory_lots", hotelId, "expiring", days],
     queryFn: async () => {
+      if (!hotelId) return [] as InventoryLotWithRelations[];
       const { data, error } = await supabase
         .from("inventory_lots")
         .select(`
@@ -82,6 +91,7 @@ export function useExpiringLots(days: number = 7) {
           product:products(id, name),
           supplier:suppliers(id, name)
         `)
+        .eq("hotel_id", hotelId)
         .gt("quantity", 0)
         .gte("expiry_date", today)
         .lte("expiry_date", limitDate)
@@ -90,13 +100,25 @@ export function useExpiringLots(days: number = 7) {
       if (error) throw error;
       return data as InventoryLotWithRelations[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useInventoryStats() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["inventory_stats"],
+    queryKey: ["inventory_stats", hotelId],
     queryFn: async () => {
+      if (!hotelId) {
+        return {
+          totalLots: 0,
+          criticalCount: 0,
+          expiringCount: 0,
+          uniqueLocations: 0,
+        };
+      }
+
       const today = format(new Date(), "yyyy-MM-dd");
       const threeDaysLater = format(addDays(new Date(), 3), "yyyy-MM-dd");
       const sevenDaysLater = format(addDays(new Date(), 7), "yyyy-MM-dd");
@@ -105,6 +127,7 @@ export function useInventoryStats() {
       const { data: lots, error } = await supabase
         .from("inventory_lots")
         .select("id, expiry_date, location")
+        .eq("hotel_id", hotelId)
         .gt("quantity", 0);
 
       if (error) throw error;
@@ -125,6 +148,7 @@ export function useInventoryStats() {
         uniqueLocations,
       };
     },
+    enabled: !!hotelId,
   });
 }
 
@@ -132,6 +156,7 @@ export function useCreateInventoryLot() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const hotelId = useCurrentHotelId();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async (lot: InventoryLotInsert) => {
@@ -144,6 +169,11 @@ export function useCreateInventoryLot() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "inventory_lot",
+        action: "create",
+        payload: { lot_id: data.id, product_id: data.product_id, qty: data.quantity },
+      });
       return data;
     },
     onSuccess: () => {
@@ -168,6 +198,7 @@ export function useCreateInventoryLot() {
 export function useUpdateInventoryLot() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<InventoryLot> & { id: string }) => {
@@ -179,6 +210,11 @@ export function useUpdateInventoryLot() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "inventory_lot",
+        action: "update",
+        payload: { lot_id: id, updates },
+      });
       return data;
     },
     onSuccess: () => {
@@ -202,6 +238,7 @@ export function useUpdateInventoryLot() {
 export function useDeleteInventoryLot() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async (id: string) => {
@@ -211,6 +248,11 @@ export function useDeleteInventoryLot() {
         .eq("id", id);
 
       if (error) throw error;
+      await logEvent({
+        entity: "inventory_lot",
+        action: "delete",
+        payload: { lot_id: id },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory_lots"] });

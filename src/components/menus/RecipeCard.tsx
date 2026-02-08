@@ -1,12 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Copy, Euro, ChefHat } from "lucide-react";
+import { Copy, Euro, ChefHat, History } from "lucide-react";
 import { MenuWithItems, useDuplicateMenu } from "@/hooks/useMenus";
 
 interface Props {
   menu: MenuWithItems;
   onClick: () => void;
+  onHistory?: () => void;
 }
 
 const typeLabels: Record<string, string> = {
@@ -18,12 +19,17 @@ const typeLabels: Record<string, string> = {
   cocktail: "Cóctel",
 };
 
-export function RecipeCard({ menu, onClick }: Props) {
+export function RecipeCard({ menu, onClick, onHistory }: Props) {
   const duplicateMenu = useDuplicateMenu();
 
   const handleDuplicate = (e: React.MouseEvent) => {
     e.stopPropagation();
     duplicateMenu.mutate(menu.id);
+  };
+
+  const handleHistory = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onHistory?.();
   };
 
   const costPerPax = menu.cost_per_pax || 0;
@@ -65,15 +71,26 @@ export function RecipeCard({ menu, onClick }: Props) {
               {costPerPax.toFixed(2)} €/pax
             </span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={handleDuplicate}
-            disabled={duplicateMenu.isPending}
-          >
-            <Copy className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleHistory}
+              disabled={!onHistory}
+            >
+              <History className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleDuplicate}
+              disabled={duplicateMenu.isPending}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

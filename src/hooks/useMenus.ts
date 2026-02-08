@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentHotelId } from "@/hooks/useCurrentHotel";
 import { toast } from "sonner";
+import { resolveApprovalRequirement } from "@/lib/approvalRules";
 
 export interface Menu {
   id: string;
@@ -48,14 +50,26 @@ export interface MenuItemInsert {
   preparation_notes?: string | null;
 }
 
+interface ApprovalPolicyRow {
+  threshold_amount: number | null;
+  required_role: string;
+  active: boolean | null;
+}
+
+const supabaseUntyped = supabase as unknown as SupabaseClient;
+
 // Fetch all menus for the current hotel
 export function useMenusWithItems() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["menus-with-items"],
+    queryKey: ["menus-with-items", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [] as MenuWithItems[];
       const { data: menus, error: menusError } = await supabase
         .from("menus")
         .select("*")
+        .eq("hotel_id", hotelId)
         .eq("is_active", true)
         .order("name");
 
@@ -90,6 +104,7 @@ export function useMenusWithItems() {
 
       return menusWithItems;
     },
+    enabled: !!hotelId,
   });
 }
 
@@ -154,12 +169,62 @@ export function useCreateMenu() {
 // Update menu basic info
 export function useUpdateMenu() {
   const queryClient = useQueryClient();
+  const hotelId = useCurrentHotelId();
 
   return useMutation({
     mutationFn: async ({
       id,
       ...updates
     }: Partial<Menu> & { id: string }) => {
+      if (hotelId && updates.cost_per_pax != null) {
+        const { data: policies, error: policyError } = await supabaseUntyped
+          .from("approval_policies")
+          .select("entity, threshold_amount, required_role, active")
+          .eq("hotel_id", hotelId)
+          .eq("entity", "menu")
+          .eq("active", true);
+        if (policyError) throw policyError;
+
+        const policyRows = (policies ?? []) as ApprovalPolicyRow[];
+        const decision = resolveApprovalRequirement(
+          policyRows.map((policy) => ({
+            entity: "menu",
+            thresholdAmount: policy.threshold_amount,
+            requiredRole: policy.required_role,
+            active: policy.active,
+          })),
+          "menu",
+          updates.cost_per_pax ?? 0,
+        );
+
+        if (decision.requiresApproval) {
+          const { error: approvalError } = await supabaseUntyped.rpc("create_approval_request", {
+            _hotel_id: hotelId,
+            _entity: "menu",
+            _entity_id: id,
+            _amount: updates.cost_per_pax ?? 0,
+            _payload: {
+              menu_id: id,
+              updates,
+              trigger: "menu_update",
+            },
+          });
+          if (approvalError) throw approvalError;
+
+          const { data: currentMenu, error: currentMenuError } = await supabase
+            .from("menus")
+            .select("*")
+            .eq("id", id)
+            .single();
+          if (currentMenuError) throw currentMenuError;
+
+          return {
+            ...currentMenu,
+            __pendingApproval: true,
+          } as Menu & { __pendingApproval: boolean };
+        }
+      }
+
       const { data, error } = await supabase
         .from("menus")
         .update(updates)
@@ -170,10 +235,14 @@ export function useUpdateMenu() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["menus"] });
       queryClient.invalidateQueries({ queryKey: ["menus-with-items"] });
-      toast.success("Receta actualizada");
+      if ((data as Menu & { __pendingApproval?: boolean })?.__pendingApproval) {
+        toast.success("Solicitud de aprobación creada para el menú");
+      } else {
+        toast.success("Receta actualizada");
+      }
     },
     onError: (error) => {
       toast.error("Error al actualizar: " + error.message);

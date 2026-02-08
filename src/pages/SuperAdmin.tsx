@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, Plus, Users, Mail, Trash2, Send, Loader2, Shield, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { useSuperAdminAnalytics } from "@/hooks/useSuperAdminAnalytics";
+import { BenchmarkCards } from "@/components/superadmin/BenchmarkCards";
 
 const SuperAdmin = () => {
   const { roles, loading: authLoading } = useAuth();
@@ -28,6 +30,7 @@ const SuperAdmin = () => {
     inviteOwner,
     cancelInvitation,
   } = useSuperAdmin();
+  const { data: benchmarkRows = [] } = useSuperAdminAnalytics();
 
   const [newHotelOpen, setNewHotelOpen] = useState(false);
   const [inviteOwnerOpen, setInviteOwnerOpen] = useState(false);
@@ -129,6 +132,8 @@ const SuperAdmin = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="hotels" className="space-y-4">
+          <BenchmarkCards rows={benchmarkRows} />
+
           <div className="flex items-center justify-between">
             <TabsList>
               <TabsTrigger value="hotels" className="flex items-center gap-2">

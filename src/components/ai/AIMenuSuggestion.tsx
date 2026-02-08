@@ -5,21 +5,27 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Sparkles, Loader2, Check } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import { getAISuggestion } from "@/hooks/useAIAssistant";
 import ReactMarkdown from "react-markdown";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 interface Props {
   eventName: string;
   pax: number;
   eventType?: string;
-  onSelectMenu?: (menuName: string) => void;
 }
 
-export function AIMenuSuggestion({ eventName, pax, eventType, onSelectMenu }: Props) {
+export function AIMenuSuggestion({ eventName, pax, eventType }: Props) {
+  const { data: featureFlags } = useFeatureFlags();
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const aiEnabled = featureFlags?.ai_menu_recommender ?? false;
+
+  if (!aiEnabled) {
+    return null;
+  }
 
   const handleGetSuggestion = async () => {
     setIsLoading(true);

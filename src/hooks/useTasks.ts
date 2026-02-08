@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentHotelId } from "@/hooks/useCurrentHotel";
 import { format, addDays, subDays } from "date-fns";
+import { useOpsTelemetry } from "@/hooks/useOpsTelemetry";
 
 export interface ProductionTask {
   id: string;
@@ -38,19 +39,22 @@ export interface ProductionTaskInsert {
 }
 
 export function useTasks(options?: { startDate?: string; endDate?: string; shift?: string; status?: string }) {
+  const hotelId = useCurrentHotelId();
   const today = new Date();
   const defaultStart = format(subDays(today, 7), "yyyy-MM-dd");
   const defaultEnd = format(addDays(today, 14), "yyyy-MM-dd");
 
   return useQuery({
-    queryKey: ["production_tasks", options?.startDate, options?.endDate, options?.shift, options?.status],
+    queryKey: ["production_tasks", hotelId, options?.startDate, options?.endDate, options?.shift, options?.status],
     queryFn: async () => {
+      if (!hotelId) return [] as ProductionTaskWithRelations[];
       let query = supabase
         .from("production_tasks")
         .select(`
           *,
           event:events(id, name, pax)
         `)
+        .eq("hotel_id", hotelId)
         .gte("task_date", options?.startDate || defaultStart)
         .lte("task_date", options?.endDate || defaultEnd)
         .order("task_date", { ascending: true })
@@ -67,18 +71,30 @@ export function useTasks(options?: { startDate?: string; endDate?: string; shift
       if (error) throw error;
       return data as ProductionTaskWithRelations[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useTaskStats() {
+  const hotelId = useCurrentHotelId();
   const today = format(new Date(), "yyyy-MM-dd");
 
   return useQuery({
-    queryKey: ["task_stats"],
+    queryKey: ["task_stats", hotelId],
     queryFn: async () => {
+      if (!hotelId) {
+        return {
+          pendingCount: 0,
+          inProgressCount: 0,
+          completedTodayCount: 0,
+          totalTasks: 0,
+        };
+      }
+
       const { data: tasks, error } = await supabase
         .from("production_tasks")
         .select("id, status, completed_at")
+        .eq("hotel_id", hotelId)
         .gte("task_date", today);
 
       if (error) throw error;
@@ -97,6 +113,7 @@ export function useTaskStats() {
         totalTasks,
       };
     },
+    enabled: !!hotelId,
   });
 }
 
@@ -104,6 +121,7 @@ export function useCreateTask() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const hotelId = useCurrentHotelId();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async (task: ProductionTaskInsert) => {
@@ -116,6 +134,11 @@ export function useCreateTask() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "task",
+        action: "create",
+        payload: { task_id: data.id, title: data.title, shift: data.shift },
+      });
       return data;
     },
     onSuccess: () => {
@@ -140,6 +163,7 @@ export function useCreateTask() {
 export function useUpdateTask() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<ProductionTask> & { id: string }) => {
@@ -151,6 +175,11 @@ export function useUpdateTask() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "task",
+        action: "update",
+        payload: { task_id: id, updates },
+      });
       return data;
     },
     onSuccess: () => {
@@ -174,6 +203,7 @@ export function useUpdateTask() {
 export function useStartTask() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async (id: string) => {
@@ -188,6 +218,11 @@ export function useStartTask() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "task",
+        action: "start",
+        payload: { task_id: id },
+      });
       return data;
     },
     onSuccess: () => {
@@ -211,6 +246,7 @@ export function useStartTask() {
 export function useCompleteTask() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async ({ id, started_at }: { id: string; started_at: string | null }) => {
@@ -234,6 +270,11 @@ export function useCompleteTask() {
         .single();
 
       if (error) throw error;
+      await logEvent({
+        entity: "task",
+        action: "complete",
+        payload: { task_id: id, duration_seconds },
+      });
       return data;
     },
     onSuccess: (data) => {
@@ -268,6 +309,7 @@ export function useCompleteTask() {
 export function useDeleteTask() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { logEvent } = useOpsTelemetry();
 
   return useMutation({
     mutationFn: async (id: string) => {
@@ -277,6 +319,11 @@ export function useDeleteTask() {
         .eq("id", id);
 
       if (error) throw error;
+      await logEvent({
+        entity: "task",
+        action: "delete",
+        payload: { task_id: id },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["production_tasks"] });

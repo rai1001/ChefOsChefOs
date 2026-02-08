@@ -1,13 +1,28 @@
 project_id = "ynwzlgbodwipezihpvvr"
 
 [functions.parse-menu-image]
-verify_jwt = false
+verify_jwt = true
 
 [functions.parse-delivery-note]
-verify_jwt = false
+verify_jwt = true
 
 [functions.send-invitation-email]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ai-assistant]
+verify_jwt = true
+
+[functions.preview-invitation]
+verify_jwt = false
+
+[functions.generate-purchase-suggestions]
+verify_jwt = true
+
+[functions.daily-ops-briefing]
+verify_jwt = true
+
+[functions.send-ops-alert]
+verify_jwt = true
+
+[functions.agent-bridge]
 verify_jwt = false

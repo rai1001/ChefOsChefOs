@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function HotelSelector() {
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const { currentHotel, userHotels, switchHotel } = useHotel();
   const queryClient = useQueryClient();
   
@@ -81,17 +81,17 @@ export function HotelSelector() {
         .update({ current_hotel_id: hotel.id })
         .eq("id", user.id);
 
+      await refreshUserData();
+
       // Refresh queries
       queryClient.invalidateQueries({ queryKey: ["user-hotels"] });
       queryClient.invalidateQueries({ queryKey: ["current-hotel"] });
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      queryClient.invalidateQueries({ queryKey: ["hotel-members"] });
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
 
       toast.success("Hotel creado correctamente");
       setIsCreateOpen(false);
       setHotelName("");
-      
-      // Reload page to refresh all data
-      window.location.reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Error desconocido";
       toast.error("Error al crear hotel: " + message);

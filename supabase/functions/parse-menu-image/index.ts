@@ -31,6 +31,14 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 

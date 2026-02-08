@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,11 +59,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Calendar,
+  Sparkles,
 } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   usePurchases,
   usePurchaseStats,
@@ -77,10 +78,13 @@ import {
 import { useSuppliers, useProducts } from "@/hooks/useProducts";
 import { calculateExpectedDelivery } from "@/hooks/useSuppliers";
 import { PurchaseReceiveDialog } from "@/components/purchases/PurchaseReceiveDialog";
+import { PurchaseSuggestionsDialog } from "@/components/purchases/PurchaseSuggestionsDialog";
+import { ApprovalInbox } from "@/components/approvals/ApprovalInbox";
 
 const statusConfig = {
   draft: { label: "Borrador", icon: FileText, color: "bg-muted text-muted-foreground" },
   pending: { label: "Pendiente", icon: Clock, color: "bg-warning/10 text-warning" },
+  pending_approval: { label: "Pend. aprobación", icon: AlertTriangle, color: "bg-amber-100 text-amber-700" },
   ordered: { label: "Pedido", icon: Truck, color: "bg-info/10 text-info" },
   received: { label: "Recibido", icon: Check, color: "bg-success/10 text-success" },
 };
@@ -91,6 +95,8 @@ const Purchases = () => {
   const [editingPurchase, setEditingPurchase] = useState<PurchaseWithRelations | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [receivingPurchase, setReceivingPurchase] = useState<PurchaseWithRelations | null>(null);
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     supplier_id: "",
@@ -108,6 +114,19 @@ const Purchases = () => {
   const updatePurchase = useUpdatePurchase();
   const deletePurchase = useDeletePurchase();
   const receivePurchase = useReceivePurchase();
+
+  useEffect(() => {
+    const quick = searchParams.get("quick");
+    if (quick === "receive") {
+      const firstOrdered = purchases.find((purchase) => purchase.status === "ordered");
+      if (firstOrdered) {
+        setReceivingPurchase(firstOrdered);
+      }
+      const next = new URLSearchParams(searchParams);
+      next.delete("quick");
+      setSearchParams(next, { replace: true });
+    }
+  }, [purchases, searchParams, setSearchParams]);
 
   // Group purchases by supplier
   const purchasesBySupplier = purchases.reduce((acc, purchase) => {
@@ -305,6 +324,7 @@ const Purchases = () => {
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="draft">Borradores</SelectItem>
               <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="pending_approval">Pend. aprobación</SelectItem>
               <SelectItem value="ordered">Pedidos</SelectItem>
               <SelectItem value="received">Recibidos</SelectItem>
             </SelectContent>
@@ -318,10 +338,21 @@ const Purchases = () => {
           </Link>
         </div>
 
-        <Button size="sm" className="h-9" onClick={() => handleOpenCreate()}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Pedido
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-9" onClick={() => setIsSuggestionsOpen(true)}>
+            <Sparkles className="h-4 w-4 mr-2" />
+            Sugerencias automáticas
+          </Button>
+          <Button size="sm" className="h-9" onClick={() => handleOpenCreate()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo Pedido
+          </Button>
+        </div>
+      </div>
+
+      {/* Purchases by Supplier */}
+      <div className="mb-6">
+        <ApprovalInbox entity="purchase" />
       </div>
 
       {/* Purchases by Supplier */}
@@ -440,6 +471,7 @@ const Purchases = () => {
                               <SelectContent>
                                 <SelectItem value="draft">Borrador</SelectItem>
                                 <SelectItem value="pending">Pendiente</SelectItem>
+                                <SelectItem value="pending_approval">Pend. aprobación</SelectItem>
                                 <SelectItem value="ordered">Pedido</SelectItem>
                                 <SelectItem value="received">Recibido</SelectItem>
                               </SelectContent>
@@ -672,6 +704,11 @@ const Purchases = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <PurchaseSuggestionsDialog
+        open={isSuggestionsOpen}
+        onOpenChange={setIsSuggestionsOpen}
+      />
     </MainLayout>
   );
 };

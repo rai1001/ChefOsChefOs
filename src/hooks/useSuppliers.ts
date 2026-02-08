@@ -42,28 +42,37 @@ const DAYS_OF_WEEK = [
 export { DAYS_OF_WEEK };
 
 export function useSuppliersList() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["suppliers_full"],
+    queryKey: ["suppliers_full", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [] as Supplier[];
       const { data, error } = await supabase
         .from("suppliers")
         .select("*")
+        .eq("hotel_id", hotelId)
         .order("name");
 
       if (error) throw error;
       return data as Supplier[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useSupplier(id: string | null) {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["supplier", id],
-    enabled: !!id,
+    queryKey: ["supplier", hotelId, id],
+    enabled: !!id && !!hotelId,
     queryFn: async () => {
+      if (!hotelId) throw new Error("No hay hotel seleccionado");
       const { data, error } = await supabase
         .from("suppliers")
         .select("*")
+        .eq("hotel_id", hotelId)
         .eq("id", id!)
         .single();
 

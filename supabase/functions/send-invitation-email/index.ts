@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@2.0.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,11 +9,7 @@ const corsHeaders = {
 };
 
 interface InvitationEmailRequest {
-  email: string;
-  hotelName: string;
-  role: string;
   token: string;
-  inviterName?: string;
 }
 
 const roleLabels: Record<string, string> = {
@@ -39,15 +36,108 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    const resend = new Resend(resendApiKey);
-    const { email, hotelName, role, token, inviterName }: InvitationEmailRequest = await req.json();
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    if (!email || !hotelName || !token) {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey =
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+      Deno.env.get("SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response(
+        JSON.stringify({ error: "Supabase service credentials missing" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const userToken = authHeader.replace("Bearer ", "");
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(userToken);
+
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const resend = new Resend(resendApiKey);
+    const { token }: InvitationEmailRequest = await req.json();
+
+    if (!token) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const { data: invitation, error: invitationError } = await supabase
+      .from("invitations")
+      .select("id, email, role, invited_by, expires_at, accepted_at, hotel:hotels(name)")
+      .eq("token", token)
+      .single();
+
+    if (invitationError || !invitation) {
+      return new Response(
+        JSON.stringify({ error: "Invitation not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (invitation.accepted_at) {
+      return new Response(
+        JSON.stringify({ error: "Invitation already accepted" }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (new Date(invitation.expires_at).getTime() < Date.now()) {
+      return new Response(
+        JSON.stringify({ error: "Invitation expired" }),
+        { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    let canSend = invitation.invited_by === user.id;
+    if (!canSend) {
+      const { data: superAdminRole } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "super_admin")
+        .maybeSingle();
+      canSend = !!superAdminRole;
+    }
+
+    if (!canSend) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    let inviterName: string | null = null;
+    if (invitation.invited_by) {
+      const { data: inviterProfile } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", invitation.invited_by)
+        .maybeSingle();
+      inviterName =
+        inviterProfile?.full_name?.trim() || inviterProfile?.email || null;
+    }
+
+    const hotelName = invitation.hotel?.name ?? "tu hotel";
+    const recipientEmail = invitation.email;
+    const role = invitation.role;
 
     // Get the app URL from environment or use default
     const appUrl = Deno.env.get("APP_URL") || "https://id-preview--a58ca4e1-7f67-4e5c-8745-d134cc9f1214.lovable.app";
@@ -114,7 +204,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const emailResponse = await resend.emails.send({
       from: "ChefOs <onboarding@resend.dev>",
-      to: [email],
+      to: [recipientEmail],
       subject: `Invitación a ${hotelName} - ChefOs`,
       html: emailHtml,
     });

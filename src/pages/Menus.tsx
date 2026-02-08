@@ -6,6 +6,8 @@ import { CreateRecipeDialog } from "@/components/menus/CreateRecipeDialog";
 import { RecipeCard } from "@/components/menus/RecipeCard";
 import { RecipeDetailDialog } from "@/components/menus/RecipeDetailDialog";
 import { ProductionSheetDialog } from "@/components/menus/ProductionSheetDialog";
+import { MenuVersionHistoryDialog } from "@/components/menus/MenuVersionHistoryDialog";
+import { ApprovalInbox } from "@/components/approvals/ApprovalInbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UtensilsCrossed, Coffee, Utensils, Moon, Sun } from "lucide-react";
@@ -33,6 +35,8 @@ const Menus = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [sheetMenu, setSheetMenu] = useState<MenuWithItems | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [versionMenu, setVersionMenu] = useState<MenuWithItems | null>(null);
+  const [versionOpen, setVersionOpen] = useState(false);
 
   const { data: savedMenus = [], isLoading } = useMenusWithItems();
 
@@ -50,6 +54,11 @@ const Menus = () => {
     setSheetMenu(menu);
     setSheetOpen(true);
     setDetailOpen(false);
+  };
+
+  const handleOpenVersions = (menu: MenuWithItems) => {
+    setVersionMenu(menu);
+    setVersionOpen(true);
   };
 
   const getMealIcon = (type: string) => {
@@ -97,6 +106,10 @@ const Menus = () => {
         </div>
       </div>
 
+      <div className="mb-6">
+        <ApprovalInbox entity="menu" />
+      </div>
+
       {/* Loading state */}
       {isLoading && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
@@ -118,6 +131,7 @@ const Menus = () => {
                 key={menu.id}
                 menu={menu}
                 onClick={() => handleOpenDetail(menu)}
+                onHistory={() => handleOpenVersions(menu)}
               />
             ))}
           </div>
@@ -229,6 +243,13 @@ const Menus = () => {
         menu={sheetMenu}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      <MenuVersionHistoryDialog
+        open={versionOpen}
+        onOpenChange={setVersionOpen}
+        menuId={versionMenu?.id ?? null}
+        menuName={versionMenu?.name}
       />
     </MainLayout>
   );

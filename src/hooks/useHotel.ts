@@ -45,7 +45,7 @@ export interface Invitation {
 }
 
 export function useHotel() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshUserData } = useAuth();
   const queryClient = useQueryClient();
 
   // Get current hotel
@@ -161,10 +161,14 @@ export function useHotel() {
         .eq('id', user.id);
       
       if (error) throw error;
+      return hotelId;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await refreshUserData();
       queryClient.invalidateQueries({ queryKey: ['current-hotel'] });
+      queryClient.invalidateQueries({ queryKey: ['user-hotels'] });
       queryClient.invalidateQueries({ queryKey: ['hotel-members'] });
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
       toast.success('Hotel cambiado correctamente');
     },
     onError: (error) => {

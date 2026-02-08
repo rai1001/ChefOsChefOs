@@ -19,67 +19,82 @@ serve(async (req) => {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    const { messages, type, context } = await req.json();
+    const { messages, type } = await req.json();
 
-    // Get auth user for context
+    // Require authenticated user for this function.
     const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey =
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+      Deno.env.get("SERVICE_ROLE_KEY");
+    if (!supabaseKey) {
+      throw new Error("Service role key is not configured");
+    }
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const token = authHeader.replace("Bearer ", "");
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let hotelContext = "";
 
-    if (authHeader) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseKey = Deno.env.get("SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
+    // Get user's hotel
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("current_hotel_id")
+      .eq("id", user.id)
+      .single();
 
-      // Extract token
-      const token = authHeader.replace("Bearer ", "");
-      const {
-        data: { user },
-      } = await supabase.auth.getUser(token);
+    if (profile?.current_hotel_id) {
+      // Fetch context data based on type
+      if (type === "chat" || type === "suggest_menu") {
+        // Get upcoming events
+        const { data: events } = await supabase
+          .from("events")
+          .select("name, event_date, pax, status")
+          .eq("hotel_id", profile.current_hotel_id)
+          .gte("event_date", new Date().toISOString().split("T")[0])
+          .order("event_date")
+          .limit(10);
 
-      if (user) {
-        // Get user's hotel
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("current_hotel_id")
-          .eq("id", user.id)
-          .single();
+        // Get menus
+        const { data: menus } = await supabase
+          .from("menus")
+          .select("name, type, cost_per_pax, description")
+          .eq("hotel_id", profile.current_hotel_id)
+          .eq("is_active", true)
+          .limit(20);
 
-        if (profile?.current_hotel_id) {
-          // Fetch context data based on type
-          if (type === "chat" || type === "suggest_menu") {
-            // Get upcoming events
-            const { data: events } = await supabase
-              .from("events")
-              .select("name, event_date, pax, status")
-              .eq("hotel_id", profile.current_hotel_id)
-              .gte("event_date", new Date().toISOString().split("T")[0])
-              .order("event_date")
-              .limit(10);
+        // Get pending tasks
+        const { data: tasks } = await supabase
+          .from("production_tasks")
+          .select("title, task_date, shift, status, priority")
+          .eq("hotel_id", profile.current_hotel_id)
+          .eq("status", "pending")
+          .limit(10);
 
-            // Get menus
-            const { data: menus } = await supabase
-              .from("menus")
-              .select("name, type, cost_per_pax, description")
-              .eq("hotel_id", profile.current_hotel_id)
-              .eq("is_active", true)
-              .limit(20);
-
-            // Get pending tasks
-            const { data: tasks } = await supabase
-              .from("production_tasks")
-              .select("title, task_date, shift, status, priority")
-              .eq("hotel_id", profile.current_hotel_id)
-              .eq("status", "pending")
-              .limit(10);
-
-            hotelContext = `
+        hotelContext = `
 CONTEXTO DEL HOTEL:
 - Próximos eventos (${events?.length || 0}): ${JSON.stringify(events || [])}
 - Menús disponibles (${menus?.length || 0}): ${JSON.stringify(menus || [])}
 - Tareas pendientes (${tasks?.length || 0}): ${JSON.stringify(tasks || [])}
 `;
-          }
-        }
       }
     }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -34,25 +34,17 @@ export default function AcceptInvitation() {
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
+  const fetchInvitation = useCallback(async () => {
     if (!token) {
       setError("Token de invitación no válido");
       setLoading(false);
       return;
     }
 
-    fetchInvitation();
-  }, [token]);
-
-  async function fetchInvitation() {
     try {
-      const { data, error } = await supabase
-        .from("invitations")
-        .select("*, hotels(name)")
-        .eq("token", token)
-        .is("accepted_at", null)
-        .gte("expires_at", new Date().toISOString())
-        .single();
+      const { data, error } = await supabase.functions.invoke("preview-invitation", {
+        body: { token },
+      });
 
       if (error || !data) {
         setError("La invitación no existe, ya fue usada o ha expirado");
@@ -60,23 +52,85 @@ export default function AcceptInvitation() {
         return;
       }
 
-      setInvitation({
-        ...data,
-        hotel: data.hotels,
-      });
-      setEmail(data.email);
+      if (!data.success || !data.data) {
+        setError(data?.error || "La invitación no existe, ya fue usada o ha expirado");
+        setLoading(false);
+        return;
+      }
 
-      // Check if user already exists
+      const invitationData = data.data as InvitationData;
+      setInvitation({
+        ...invitationData,
+        hotel: invitationData.hotel,
+      });
+      setEmail(invitationData.email);
+
+      // Check if the currently logged-in user can accept this invitation
       const { data: session } = await supabase.auth.getSession();
-      if (session?.session?.user?.email === data.email) {
-        setIsNewUser(false);
+      const sessionEmail = session?.session?.user?.email?.toLowerCase();
+      if (sessionEmail) {
+        if (sessionEmail === invitationData.email.toLowerCase()) {
+          setIsNewUser(false);
+        } else {
+          setError(
+            `Esta invitación corresponde a ${invitationData.email}. Inicia sesión con ese correo para aceptarla.`
+          );
+        }
       }
 
       setLoading(false);
-    } catch (err) {
+    } catch {
       setError("Error al cargar la invitación");
       setLoading(false);
     }
+  }, [token]);
+
+  useEffect(() => {
+    void fetchInvitation();
+  }, [fetchInvitation]);
+
+  async function finalizeInvitationAcceptance(userId: string) {
+    if (!invitation) return;
+
+    const { error: memberError } = await supabase
+      .from("hotel_members")
+      .insert({
+        hotel_id: invitation.hotel_id,
+        user_id: userId,
+        is_owner: false,
+      });
+
+    // Ignore duplicate member insertion (already part of hotel).
+    if (memberError && memberError.code !== "23505") {
+      throw memberError;
+    }
+
+    const { error: roleError } = await supabase
+      .from("user_roles")
+      .upsert(
+        {
+          user_id: userId,
+          role: invitation.role,
+        },
+        { onConflict: "user_id,role" }
+      );
+
+    if (roleError) throw roleError;
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ current_hotel_id: invitation.hotel_id })
+      .eq("id", userId);
+
+    if (profileError) throw profileError;
+
+    const { error: invitationError } = await supabase
+      .from("invitations")
+      .update({ accepted_at: new Date().toISOString() })
+      .eq("id", invitation.id)
+      .is("accepted_at", null);
+
+    if (invitationError) throw invitationError;
   }
 
   async function handleAccept() {
@@ -85,7 +139,7 @@ export default function AcceptInvitation() {
 
     try {
       if (isNewUser) {
-        // Create new user
+        // Create new user account for the invited email
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email,
           password,
@@ -100,85 +154,38 @@ export default function AcceptInvitation() {
         const userId = authData.user?.id;
         if (!userId) throw new Error("Error al crear usuario");
 
-        // Add to hotel_members
-        const { error: memberError } = await supabase
-          .from("hotel_members")
-          .insert({
-            hotel_id: invitation.hotel_id,
-            user_id: userId,
-            is_owner: false,
-          });
+        const { data: currentSession } = await supabase.auth.getSession();
+        const sessionUser = currentSession.session?.user;
 
-        if (memberError) throw memberError;
+        if (!sessionUser || sessionUser.id !== userId) {
+          toast.success(
+            "Cuenta creada. Confirma tu correo y luego inicia sesión para completar la invitación."
+          );
+          navigate("/auth");
+          return;
+        }
 
-        // Add role
-        const { error: roleError } = await supabase
-          .from("user_roles")
-          .insert({
-            user_id: userId,
-            role: invitation.role,
-          });
-
-        if (roleError) throw roleError;
-
-        // Update profile with current_hotel_id
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ current_hotel_id: invitation.hotel_id })
-          .eq("id", userId);
-
-        if (profileError) console.error("Error updating profile:", profileError);
-
-        // Mark invitation as accepted
-        await supabase
-          .from("invitations")
-          .update({ accepted_at: new Date().toISOString() })
-          .eq("id", invitation.id);
-
-        toast.success("¡Cuenta creada! Revisa tu email para confirmar.");
-        navigate("/auth");
+        await finalizeInvitationAcceptance(userId);
+        toast.success("¡Cuenta creada y hotel asignado!");
+        navigate("/");
       } else {
-        // Existing user - just add to hotel
+        // Existing user - accept invitation for current account
         const { data: session } = await supabase.auth.getSession();
-        const userId = session?.session?.user?.id;
+        const sessionUser = session?.session?.user;
+        const userId = sessionUser?.id;
         if (!userId) throw new Error("Debes iniciar sesión primero");
+        if (sessionUser.email?.toLowerCase() !== invitation.email.toLowerCase()) {
+          throw new Error(`La invitación corresponde al correo ${invitation.email}`);
+        }
 
-        // Add to hotel_members
-        const { error: memberError } = await supabase
-          .from("hotel_members")
-          .insert({
-            hotel_id: invitation.hotel_id,
-            user_id: userId,
-            is_owner: false,
-          });
-
-        if (memberError) throw memberError;
-
-        // Add role if not exists
-        await supabase
-          .from("user_roles")
-          .upsert({
-            user_id: userId,
-            role: invitation.role,
-          }, { onConflict: 'user_id,role' });
-
-        // Update current hotel
-        await supabase
-          .from("profiles")
-          .update({ current_hotel_id: invitation.hotel_id })
-          .eq("id", userId);
-
-        // Mark invitation as accepted
-        await supabase
-          .from("invitations")
-          .update({ accepted_at: new Date().toISOString() })
-          .eq("id", invitation.id);
+        await finalizeInvitationAcceptance(userId);
 
         toast.success("¡Te has unido al hotel!");
         navigate("/");
       }
-    } catch (err) {
-      toast.error(err.message || "Error al aceptar invitación");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al aceptar invitación";
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }

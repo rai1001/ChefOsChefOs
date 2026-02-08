@@ -113,9 +113,6 @@ const Staff = () => {
       // Send email via edge function
       const { error } = await supabase.functions.invoke("send-invitation-email", {
         body: {
-          email: inviteEmail.trim(),
-          hotelName: currentHotel.name,
-        role: inviteRole,
           token: invitation.token,
         },
       });
@@ -131,7 +128,7 @@ const Staff = () => {
       setInviteRole("produccion");
       setIsDialogOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error al enviar la invitaciÃ³n";
+      const message = error instanceof Error ? error.message : "Error al enviar la invitación";
       toast.error(message);
     } finally {
       setIsSendingInvite(false);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,7 @@ import {
 import { format, parseISO, isToday, isTomorrow, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useSearchParams } from "react-router-dom";
 import {
   useTasks,
   useTaskStats,
@@ -62,6 +63,7 @@ const Tasks = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<ProductionTaskWithRelations | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     title: "",
@@ -87,6 +89,30 @@ const Tasks = () => {
   const startTask = useStartTask();
   const completeTask = useCompleteTask();
   const deleteTask = useDeleteTask();
+
+  useEffect(() => {
+    const quick = searchParams.get("quick");
+    if (!quick) return;
+
+    if (quick === "start") {
+      const candidate = tasks.find((task) => task.status === "pending");
+      if (candidate) void startTask.mutateAsync(candidate.id);
+    }
+
+    if (quick === "complete") {
+      const candidate = tasks.find((task) => task.status === "in_progress");
+      if (candidate) {
+        void completeTask.mutateAsync({
+          id: candidate.id,
+          started_at: candidate.started_at,
+        });
+      }
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("quick");
+    setSearchParams(next, { replace: true });
+  }, [tasks, searchParams, setSearchParams, startTask, completeTask]);
 
   const getDateLabel = (dateStr: string) => {
     const date = parseISO(dateStr);

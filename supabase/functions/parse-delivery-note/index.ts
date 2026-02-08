@@ -11,14 +11,37 @@ serve(async (req) => {
   }
 
   try {
+    const normalizeName = (value: string) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+
+    const namesMatch = (left: string, right: string) => {
+      const a = normalizeName(left);
+      const b = normalizeName(right);
+      return a.includes(b) || b.includes(a);
+    };
+
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    const { imageBase64 } = await req.json();
+    const { imageBase64, image, expectedItems } = await req.json();
+    const imagePayload = imageBase64 || image;
 
-    if (!imageBase64) {
+    if (!imagePayload) {
       return new Response(
         JSON.stringify({ error: "No image provided" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -27,9 +50,9 @@ serve(async (req) => {
 
     console.log("Parsing delivery note image with OCR...");
 
-    const imageMatch = imageBase64.match(/^data:(.+);base64,(.*)$/);
+    const imageMatch = String(imagePayload).match(/^data:(.+);base64,(.*)$/);
     const mimeType = imageMatch?.[1] || "image/jpeg";
-    const base64Payload = imageMatch?.[2] || imageBase64;
+    const base64Payload = imageMatch?.[2] || String(imagePayload);
 
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -126,8 +149,47 @@ Extrae todos los productos que puedas identificar, aunque la imagen no sea perfe
 
     console.log("Parsed delivery note:", result);
 
+    let reconciliation: Record<string, unknown> | null = null;
+    if (Array.isArray(expectedItems) && Array.isArray(result?.items)) {
+      const used = new Set<number>();
+      const matched = [];
+      const missing = [];
+
+      for (const expected of expectedItems) {
+        const index = result.items.findIndex(
+          (item: { name: string }, i: number) =>
+            !used.has(i) &&
+            typeof expected?.name === "string" &&
+            typeof item?.name === "string" &&
+            namesMatch(expected.name, item.name),
+        );
+        if (index === -1) {
+          missing.push(expected);
+          continue;
+        }
+        used.add(index);
+        const received = result.items[index];
+        matched.push({
+          expected,
+          received,
+          quantity_delta: (received?.quantity ?? 0) - (expected?.quantity ?? 0),
+        });
+      }
+
+      const unexpected = result.items.filter((_: unknown, idx: number) => !used.has(idx));
+      reconciliation = {
+        matched,
+        missing,
+        unexpected,
+        has_issues:
+          missing.length > 0 ||
+          unexpected.length > 0 ||
+          matched.some((entry: { quantity_delta: number }) => entry.quantity_delta !== 0),
+      };
+    }
+
     return new Response(
-      JSON.stringify({ success: true, data: result }),
+      JSON.stringify({ success: true, data: result, reconciliation }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

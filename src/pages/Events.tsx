@@ -34,6 +34,8 @@ import { es } from "date-fns/locale";
 import { AIMenuSuggestion } from "@/components/ai/AIMenuSuggestion";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useEventCostVariance } from "@/hooks/useEventCostVariance";
+import { EventCostVarianceCard } from "@/components/events/EventCostVarianceCard";
 
 // Calendar View Component
 interface EventCalendarViewProps {
@@ -44,19 +46,15 @@ interface EventCalendarViewProps {
 }
 
 function EventCalendarView({ events, venues, onEditEvent, onDeleteEvent }: EventCalendarViewProps) {
-  // Start at the month of the first event, or current month if no events
-  const initialMonth = useMemo(() => {
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => {
     if (events.length > 0) {
-      // Find the earliest event date
       const sortedDates = events
         .map(e => new Date(e.event_date))
         .sort((a, b) => a.getTime() - b.getTime());
       return sortedDates[0];
     }
     return new Date();
-  }, []);
-  
-  const [currentMonth, setCurrentMonth] = useState(initialMonth);
+  });
   const [hasAutoNavigated, setHasAutoNavigated] = useState(false);
   
   // Auto-navigate to first event month when events load
@@ -310,6 +308,7 @@ const Events = () => {
   const { data: events = [], isLoading } = useEvents({ startDate, endDate });
   const { data: venues = [] } = useVenues();
   const { data: menus = [] } = useMenus();
+  const { data: costVariance = [] } = useEventCostVariance({ startDate, endDate });
 
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
@@ -564,6 +563,10 @@ const Events = () => {
           )}
         </div>
       )}
+
+      <div className="mt-6">
+        <EventCostVarianceCard rows={costVariance} />
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={isCreateOpen || !!editingEvent} onOpenChange={(open) => {

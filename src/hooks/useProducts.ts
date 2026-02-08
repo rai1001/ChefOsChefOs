@@ -38,9 +38,12 @@ export interface ProductInsert {
 }
 
 export function useProducts() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["products"],
+    queryKey: ["products", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [] as ProductWithRelations[];
       const { data, error } = await supabase
         .from("products")
         .select(`
@@ -49,58 +52,75 @@ export function useProducts() {
           unit:units(id, name, abbreviation),
           supplier:suppliers(id, name)
         `)
+        .eq("hotel_id", hotelId)
         .eq("is_active", true)
         .order("name");
 
       if (error) throw error;
       return data as ProductWithRelations[];
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useProductCategories() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["product_categories"],
+    queryKey: ["product_categories", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [];
       const { data, error } = await supabase
         .from("product_categories")
         .select("*")
+        .eq("hotel_id", hotelId)
         .order("name");
 
       if (error) throw error;
       return data;
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useUnits() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["units"],
+    queryKey: ["units", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [];
       const { data, error } = await supabase
         .from("units")
         .select("*")
+        .eq("hotel_id", hotelId)
         .order("name");
 
       if (error) throw error;
       return data;
     },
+    enabled: !!hotelId,
   });
 }
 
 export function useSuppliers() {
+  const hotelId = useCurrentHotelId();
+
   return useQuery({
-    queryKey: ["suppliers"],
+    queryKey: ["suppliers", hotelId],
     queryFn: async () => {
+      if (!hotelId) return [];
       const { data, error } = await supabase
         .from("suppliers")
         .select("*")
+        .eq("hotel_id", hotelId)
         .eq("is_active", true)
         .order("name");
 
       if (error) throw error;
       return data;
     },
+    enabled: !!hotelId,
   });
 }
 

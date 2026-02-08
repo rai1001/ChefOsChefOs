@@ -13,8 +13,10 @@ import {
 import { Bot, Send, Loader2, Trash2, Sparkles } from "lucide-react";
 import { useAIAssistant } from "@/hooks/useAIAssistant";
 import ReactMarkdown from "react-markdown";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 export function AIChatWidget() {
+  const { data: featureFlags } = useFeatureFlags();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const { messages, isLoading, error, sendMessage, clearMessages } =
@@ -47,6 +49,16 @@ export function AIChatWidget() {
     "¿Cuántos pax tenemos mañana?",
     "Tareas pendientes",
   ];
+
+  const aiEnabled =
+    (featureFlags?.ai_daily_briefing ?? false) ||
+    (featureFlags?.ai_menu_recommender ?? false) ||
+    (featureFlags?.ai_purchase_suggestions ?? false) ||
+    (featureFlags?.ai_ops_alert_copy ?? false);
+
+  if (!aiEnabled) {
+    return null;
+  }
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

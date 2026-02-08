@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { reconcileDelivery, DeliveryReconciliationResult } from "@/lib/deliveryReconciliation";
 
 interface PurchaseReceiveDialogProps {
   open: boolean;
@@ -52,6 +53,7 @@ export function PurchaseReceiveDialog({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [reconciliation, setReconciliation] = useState<DeliveryReconciliationResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,51 +70,61 @@ export function PurchaseReceiveDialog({
     // OCR processing
     setIsProcessingOCR(true);
     try {
-      const base64 = await new Promise<string>((resolve) => {
+      const imageDataUrl = await new Promise<string>((resolve) => {
         const r = new FileReader();
         r.onload = () => {
-          const result = r.result as string;
-          resolve(result.split(",")[1]);
+          resolve(r.result as string);
         };
         r.readAsDataURL(file);
       });
 
       const { data, error } = await supabase.functions.invoke("parse-delivery-note", {
-        body: { image: base64 },
+        body: { imageBase64: imageDataUrl },
       });
 
       if (error) throw error;
 
-      if (data?.items && expectedItems.length > 0) {
-        // Check if received quantities match expected
-        const mismatches: string[] = [];
-        
-        for (const expected of expectedItems) {
-          const received = data.items.find(
-            (item: { name: string; quantity: number }) =>
-              item.name.toLowerCase().includes(expected.name.toLowerCase()) ||
-              expected.name.toLowerCase().includes(item.name.toLowerCase())
-          );
+      if (data?.data?.items && expectedItems.length > 0) {
+        const result = reconcileDelivery(
+          expectedItems.map((item) => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+          })),
+          data.data.items.map((item: { name: string; quantity: number; unit_price?: number }) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.unit_price ?? null,
+          })),
+        );
+        setReconciliation(result);
+        setIsComplete(!result.hasIssues);
 
-          if (!received) {
-            mismatches.push(`${expected.name}: esperado ${expected.quantity}, no encontrado`);
-          } else if (received.quantity < expected.quantity) {
-            mismatches.push(
-              `${expected.name}: esperado ${expected.quantity}, recibido ${received.quantity}`
-            );
-          }
-        }
-
-        if (mismatches.length > 0) {
-          setIsComplete(false);
-          setIssues(mismatches.join("\n"));
+        if (result.hasIssues) {
+          const mismatchLines = [
+            ...result.missing.map(
+              (item) => `${item.name}: esperado ${item.quantity}, no encontrado`,
+            ),
+            ...result.matched
+              .filter((match) => match.quantityDelta !== 0)
+              .map(
+                (match) =>
+                  `${match.expected.name}: esperado ${match.expected.quantity}, recibido ${match.received.quantity}`,
+              ),
+            ...result.unexpected.map(
+              (item) => `${item.name}: recibido no esperado (${item.quantity})`,
+            ),
+          ];
+          setIssues(mismatchLines.join("\n"));
+        } else {
+          setIssues("");
         }
       }
 
       toast({
         title: "Albarán procesado",
-        description: data?.items?.length
-          ? `Se detectaron ${data.items.length} productos`
+        description: data?.data?.items?.length
+          ? `Se detectaron ${data.data.items.length} productos`
           : "No se pudieron detectar productos",
       });
     } catch (error) {
@@ -148,6 +160,7 @@ export function PurchaseReceiveDialog({
     setIsComplete(true);
     setIssues("");
     setImagePreview(null);
+    setReconciliation(null);
   };
 
   return (
@@ -265,6 +278,15 @@ export function PurchaseReceiveDialog({
                 placeholder="Describe qué productos faltan o qué problemas hubo..."
                 rows={4}
               />
+            </div>
+          )}
+
+          {reconciliation && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-xs">
+              <p>
+                <strong>Conciliación:</strong> {reconciliation.matched.length} coinciden ·{" "}
+                {reconciliation.missing.length} faltan · {reconciliation.unexpected.length} inesperados
+              </p>
             </div>
           )}
 

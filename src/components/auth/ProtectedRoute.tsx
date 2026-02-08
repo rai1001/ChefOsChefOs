@@ -9,10 +9,12 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps) {
-  const { user, loading, roles } = useAuth();
+  const { user, loading, roles, rolesLoaded } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  const waitingForRoles = !!user && !!requiredRoles?.length && !rolesLoaded;
+
+  if (loading || waitingForRoles) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
