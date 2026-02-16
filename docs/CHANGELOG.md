@@ -32,6 +32,29 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.3] - 2026-02-16
+
+### Added
+- Fase 3 inicial (Inventario + Compras inteligentes):
+  - umbrales de stock por producto (`critical_stock`, `min_stock`, `optimal_stock`)
+  - defaults por categoria (`default_critical_stock`, `default_min_stock`, `default_optimal_stock`)
+  - hook de alertas inteligentes de inventario con CTA inmediata
+  - ventana de caducidades en 3d/7d/14d
+  - compra rapida desde alerta `?quick=suggested&supplier_id=&product_id=&qty=`
+  - historial de precios/proveedor por producto
+- Utilidad de dominio `stockThresholds` con tests para severidad y reposicion recomendada.
+- Migracion `20260216152000_inventory_thresholds_f3.sql` con normalizacion y constraints.
+
+### Changed
+- Motor de sugerencias de compra (`usePurchaseSuggestions`) ahora considera:
+  - stock actual
+  - umbrales efectivos (producto/categoria)
+  - demanda por eventos/menus
+  - intensidad de prevision
+- Dialogo de sugerencias permite crear pedido borrador completo por proveedor en 1 clic.
+- Pantalla de productos incluye edicion de umbrales C/M/O y modal de trazabilidad de precios.
+- Pantalla de inventario incluye panel de alertas criticas accionables.
+
 ## [1.0.2] - 2026-02-16
 
 ### Added

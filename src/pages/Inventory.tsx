@@ -48,7 +48,7 @@ import {
 import { format, parseISO, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   useInventoryLots,
   useInventoryStats,
@@ -63,8 +63,9 @@ import { DeliveryNoteImport } from "@/components/inventory/DeliveryNoteImport";
 import { BarcodeScanner } from "@/components/inventory/BarcodeScanner";
 import { WasteCaptureDialog } from "@/components/inventory/WasteCaptureDialog";
 import { useInventoryWaste } from "@/hooks/useInventoryWaste";
+import { useInventorySmartAlerts } from "@/hooks/useInventorySmartAlerts";
 
-type FilterType = "all" | "expiring" | "critical";
+type FilterType = "all" | "watch14" | "expiring" | "critical";
 
 const Inventory = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -92,6 +93,7 @@ const Inventory = () => {
   const { data: lots = [], isLoading } = useInventoryLots();
   const { data: stats } = useInventoryStats();
   const { data: waste = [] } = useInventoryWaste();
+  const { data: smartAlerts } = useInventorySmartAlerts();
   const { data: products = [] } = useProducts();
   const { data: suppliers = [] } = useSuppliers();
 
@@ -127,8 +129,12 @@ const Inventory = () => {
     const daysUntil = getDaysUntilExpiry(lot.expiry_date);
     if (filter === "critical") return daysUntil <= 3;
     if (filter === "expiring") return daysUntil <= 7;
+    if (filter === "watch14") return daysUntil <= 14;
     return true;
   });
+
+  const criticalStockAlerts = (smartAlerts?.stockAlerts ?? []).filter((alert) => alert.severity === "critical");
+  const criticalExpiryAlerts = (smartAlerts?.expiryAlerts ?? []).filter((alert) => alert.severity === "critical");
 
   const resetForm = () => {
     setFormData({
@@ -200,7 +206,7 @@ const Inventory = () => {
       subtitle="Control de lotes y caducidades"
     >
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-5 mb-6">
+      <div className="grid gap-4 sm:grid-cols-6 mb-6">
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <Warehouse className="h-4 w-4" />
@@ -234,6 +240,19 @@ const Inventory = () => {
             {stats?.expiringCount || 0}
           </p>
         </div>
+
+        <div className={cn(
+          "rounded-xl border p-4 shadow-sm",
+          (stats?.expiring14Count || 0) > 0 ? "border-info/30 bg-info/5" : "border-border bg-card"
+        )}>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+            <Calendar className="h-4 w-4" />
+            Ventana (â‰¤14d)
+          </div>
+          <p className={cn("font-display text-2xl font-semibold", (stats?.expiring14Count || 0) > 0 && "text-info")}>
+            {stats?.expiring14Count || 0}
+          </p>
+        </div>
         
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
@@ -251,6 +270,49 @@ const Inventory = () => {
           <p className="font-display text-2xl font-semibold">{monthlyWaste.toFixed(2)}</p>
         </div>
       </div>
+
+      {(criticalStockAlerts.length > 0 || criticalExpiryAlerts.length > 0) && (
+        <div className="mb-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-display text-lg font-semibold text-destructive">Alertas crÃ­ticas accionables</h3>
+            <Badge variant="destructive">
+              {criticalStockAlerts.length + criticalExpiryAlerts.length}
+            </Badge>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {criticalStockAlerts.slice(0, 6).map((alert) => (
+              <div key={alert.id} className="rounded-lg border border-destructive/20 bg-background p-3">
+                <p className="text-sm font-medium">{alert.productName}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Stock {alert.currentStock} / crÃ­tico {alert.criticalStock} / mÃ­n {alert.minStock}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Sugerido +{alert.recommendedQty.toFixed(2)} ({alert.supplierName})
+                </p>
+                <Button asChild size="sm" className="mt-2 h-8">
+                  <Link to={alert.ctaTo}>{alert.ctaLabel}</Link>
+                </Button>
+              </div>
+            ))}
+            {criticalExpiryAlerts.slice(0, 6).map((alert) => (
+              <div key={alert.id} className="rounded-lg border border-destructive/20 bg-background p-3">
+                <p className="text-sm font-medium">{alert.productName}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Caduca en {alert.daysRemaining} dÃ­as - cantidad {alert.quantity}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                  onClick={() => setIsWasteOpen(true)}
+                >
+                  {alert.ctaLabel}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -272,6 +334,14 @@ const Inventory = () => {
               onClick={() => setFilter("all")}
             >
               Todos
+            </Button>
+            <Button
+              variant={filter === "watch14" ? "default" : "outline"}
+              size="sm"
+              className={cn("h-9", filter === "watch14" && "bg-info hover:bg-info/90")}
+              onClick={() => setFilter("watch14")}
+            >
+              Ventana â‰¤14d
             </Button>
             <Button
               variant={filter === "expiring" ? "default" : "outline"}

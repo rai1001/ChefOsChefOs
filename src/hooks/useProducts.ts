@@ -12,6 +12,8 @@ export interface Product {
   cost_price: number | null;
   current_stock: number | null;
   min_stock: number | null;
+  optimal_stock: number;
+  critical_stock: number;
   allergens: string[] | null;
   notes: string | null;
   is_active: boolean | null;
@@ -20,7 +22,13 @@ export interface Product {
 }
 
 export interface ProductWithRelations extends Product {
-  category?: { id: string; name: string } | null;
+  category?: {
+    id: string;
+    name: string;
+    default_min_stock: number;
+    default_optimal_stock: number;
+    default_critical_stock: number;
+  } | null;
   unit?: { id: string; name: string; abbreviation: string } | null;
   supplier?: { id: string; name: string } | null;
 }
@@ -33,8 +41,22 @@ export interface ProductInsert {
   cost_price?: number | null;
   current_stock?: number | null;
   min_stock?: number | null;
+  optimal_stock?: number;
+  critical_stock?: number;
   allergens?: string[] | null;
   notes?: string | null;
+}
+
+export interface ProductPriceHistoryRow {
+  purchase_id: string;
+  product_id: string;
+  product_name: string;
+  supplier_id: string | null;
+  supplier_name: string;
+  order_date: string;
+  status: string | null;
+  unit_price: number;
+  quantity: number;
 }
 
 export function useProducts() {
@@ -48,7 +70,7 @@ export function useProducts() {
         .from("products")
         .select(`
           *,
-          category:product_categories(id, name),
+          category:product_categories(id, name, default_min_stock, default_optimal_stock, default_critical_stock),
           unit:units(id, name, abbreviation),
           supplier:suppliers(id, name)
         `)
@@ -80,6 +102,60 @@ export function useProductCategories() {
       return data;
     },
     enabled: !!hotelId,
+  });
+}
+
+export function useProductPriceHistory(productId?: string | null) {
+  const hotelId = useCurrentHotelId();
+
+  return useQuery({
+    queryKey: ["product_price_history", hotelId, productId ?? "all"],
+    enabled: !!hotelId,
+    queryFn: async (): Promise<ProductPriceHistoryRow[]> => {
+      if (!hotelId) return [];
+
+      const { data, error } = await supabase
+        .from("purchases")
+        .select(`
+          id,
+          order_date,
+          status,
+          supplier:suppliers(id, name),
+          items:purchase_items(
+            product_id,
+            quantity,
+            unit_price,
+            product:products(id, name)
+          )
+        `)
+        .eq("hotel_id", hotelId)
+        .in("status", ["ordered", "received"])
+        .order("order_date", { ascending: false })
+        .limit(300);
+
+      if (error) throw error;
+
+      const rows: ProductPriceHistoryRow[] = [];
+      for (const purchase of data ?? []) {
+        for (const item of purchase.items ?? []) {
+          if (item.unit_price == null || item.product_id == null) continue;
+          if (productId && item.product_id !== productId) continue;
+          rows.push({
+            purchase_id: purchase.id,
+            product_id: item.product_id,
+            product_name: item.product?.name ?? "Producto",
+            supplier_id: purchase.supplier?.id ?? null,
+            supplier_name: purchase.supplier?.name ?? "Sin proveedor",
+            order_date: purchase.order_date,
+            status: purchase.status,
+            unit_price: item.unit_price,
+            quantity: item.quantity ?? 0,
+          });
+        }
+      }
+
+      return rows.sort((a, b) => b.order_date.localeCompare(a.order_date));
+    },
   });
 }
 

@@ -115,13 +115,14 @@ export function useInventoryStats() {
           totalLots: 0,
           criticalCount: 0,
           expiringCount: 0,
+          expiring14Count: 0,
           uniqueLocations: 0,
         };
       }
 
-      const today = format(new Date(), "yyyy-MM-dd");
       const threeDaysLater = format(addDays(new Date(), 3), "yyyy-MM-dd");
       const sevenDaysLater = format(addDays(new Date(), 7), "yyyy-MM-dd");
+      const fourteenDaysLater = format(addDays(new Date(), 14), "yyyy-MM-dd");
 
       // Get all lots with quantity > 0
       const { data: lots, error } = await supabase
@@ -139,12 +140,16 @@ export function useInventoryStats() {
       const expiringCount = lots?.filter(l => 
         l.expiry_date && l.expiry_date > threeDaysLater && l.expiry_date <= sevenDaysLater
       ).length || 0;
+      const expiring14Count = lots?.filter(l =>
+        l.expiry_date && l.expiry_date > sevenDaysLater && l.expiry_date <= fourteenDaysLater
+      ).length || 0;
       const uniqueLocations = new Set(lots?.map(l => l.location).filter(Boolean)).size;
 
       return {
         totalLots,
         criticalCount,
         expiringCount,
+        expiring14Count,
         uniqueLocations,
       };
     },

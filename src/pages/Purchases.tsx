@@ -73,6 +73,8 @@ import {
   useDeletePurchase,
   useReceivePurchase,
   usePendingDeliveries,
+  useAddPurchaseItem,
+  useUpdatePurchaseTotal,
   PurchaseWithRelations,
 } from "@/hooks/usePurchases";
 import { useSuppliers, useProducts } from "@/hooks/useProducts";
@@ -114,10 +116,22 @@ const Purchases = () => {
   const updatePurchase = useUpdatePurchase();
   const deletePurchase = useDeletePurchase();
   const receivePurchase = useReceivePurchase();
+  const addPurchaseItem = useAddPurchaseItem();
+  const updatePurchaseTotal = useUpdatePurchaseTotal();
+  const [quickActionRunning, setQuickActionRunning] = useState(false);
 
   useEffect(() => {
     const quick = searchParams.get("quick");
     if (!quick) return;
+
+    const clearQuickParams = () => {
+      const next = new URLSearchParams(searchParams);
+      next.delete("quick");
+      next.delete("supplier_id");
+      next.delete("product_id");
+      next.delete("qty");
+      setSearchParams(next, { replace: true });
+    };
 
     if (quick === "new-purchase") {
       setEditingPurchase(null);
@@ -127,6 +141,8 @@ const Purchases = () => {
         notes: "",
       });
       setIsCreateOpen(true);
+      clearQuickParams();
+      return;
     }
 
     if (quick === "receive") {
@@ -134,12 +150,58 @@ const Purchases = () => {
       if (firstOrdered) {
         setReceivingPurchase(firstOrdered);
       }
+      clearQuickParams();
+      return;
     }
 
-    const next = new URLSearchParams(searchParams);
-    next.delete("quick");
-    setSearchParams(next, { replace: true });
-  }, [purchases, searchParams, setSearchParams, suppliers]);
+    if (quick === "suggested") {
+      if (quickActionRunning) return;
+      const supplierId = searchParams.get("supplier_id");
+      const productId = searchParams.get("product_id");
+      const qtyParam = Number.parseFloat(searchParams.get("qty") || "0");
+      clearQuickParams();
+
+      if (!supplierId || !productId || !Number.isFinite(qtyParam) || qtyParam <= 0) {
+        setIsSuggestionsOpen(true);
+        return;
+      }
+
+      const quantity = Number(qtyParam.toFixed(2));
+      setQuickActionRunning(true);
+      void (async () => {
+        try {
+          const purchase = await createPurchase.mutateAsync({
+            supplier_id: supplierId,
+            status: "draft",
+            notes: "Generado desde alerta critica de stock",
+          });
+          const unitPrice = products.find((product) => product.id === productId)?.cost_price ?? null;
+          await addPurchaseItem.mutateAsync({
+            purchase_id: purchase.id,
+            product_id: productId,
+            quantity,
+            unit_price: unitPrice,
+          });
+          await updatePurchaseTotal.mutateAsync(purchase.id);
+        } finally {
+          setQuickActionRunning(false);
+        }
+      })();
+      return;
+    }
+
+    clearQuickParams();
+  }, [
+    addPurchaseItem,
+    createPurchase,
+    products,
+    purchases,
+    quickActionRunning,
+    searchParams,
+    setSearchParams,
+    suppliers,
+    updatePurchaseTotal,
+  ]);
 
   // Group purchases by supplier
   const purchasesBySupplier = purchases.reduce((acc, purchase) => {

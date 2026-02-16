@@ -514,6 +514,9 @@ export type Database = {
       product_categories: {
         Row: {
           created_at: string
+          default_critical_stock: number
+          default_min_stock: number
+          default_optimal_stock: number
           description: string | null
           hotel_id: string | null
           id: string
@@ -521,6 +524,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_critical_stock?: number
+          default_min_stock?: number
+          default_optimal_stock?: number
           description?: string | null
           hotel_id?: string | null
           id?: string
@@ -528,6 +534,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_critical_stock?: number
+          default_min_stock?: number
+          default_optimal_stock?: number
           description?: string | null
           hotel_id?: string | null
           id?: string
@@ -619,6 +628,7 @@ export type Database = {
         Row: {
           allergens: string[] | null
           category_id: string | null
+          critical_stock: number
           cost_price: number | null
           created_at: string
           current_stock: number | null
@@ -628,6 +638,7 @@ export type Database = {
           min_stock: number | null
           name: string
           notes: string | null
+          optimal_stock: number
           supplier_id: string | null
           unit_id: string | null
           updated_at: string
@@ -635,6 +646,7 @@ export type Database = {
         Insert: {
           allergens?: string[] | null
           category_id?: string | null
+          critical_stock?: number
           cost_price?: number | null
           created_at?: string
           current_stock?: number | null
@@ -644,6 +656,7 @@ export type Database = {
           min_stock?: number | null
           name: string
           notes?: string | null
+          optimal_stock?: number
           supplier_id?: string | null
           unit_id?: string | null
           updated_at?: string
@@ -651,6 +664,7 @@ export type Database = {
         Update: {
           allergens?: string[] | null
           category_id?: string | null
+          critical_stock?: number
           cost_price?: number | null
           created_at?: string
           current_stock?: number | null
@@ -660,6 +674,7 @@ export type Database = {
           min_stock?: number | null
           name?: string
           notes?: string | null
+          optimal_stock?: number
           supplier_id?: string | null
           unit_id?: string | null
           updated_at?: string
