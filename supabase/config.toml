@@ -26,3 +26,15 @@ verify_jwt = true
 
 [functions.agent-bridge]
 verify_jwt = false
+
+[functions.openclaw-ticket-dispatch]
+verify_jwt = true
+
+[functions.openclaw-ticket-callback]
+verify_jwt = false
+
+[functions.ops-autopilot]
+verify_jwt = false
+
+[functions.ops-weekly-kpi]
+verify_jwt = false

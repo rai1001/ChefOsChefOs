@@ -32,6 +32,75 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.8] - 2026-02-16
+
+### Added
+- Fase 6.1 (operacion productiva 24/7):
+  - auto-remediation con guardrails para:
+    - `sync-delayed` (relanzar sync)
+    - `jobs-queue-backlog` (drenar/reintentar cola)
+    - `service heartbeat stale` (restart controlado worker)
+  - trazabilidad completa de automatizaciones:
+    - tabla `ops_automation_runs`
+    - tabla `ops_automation_cooldowns` (anti-loop/cooldown por incidente+servicio+accion)
+    - timeline de incidentes con eventos `auto_remediation` y `auto_resolved` (actor `system`)
+  - escalado automatico por severidad/SLA:
+    - politicas `ops_escalation_policies`
+    - estado activo `ops_escalations`
+    - eventos `escalation` y `escalation_reminder` con deduplicacion temporal
+  - panel SLO/SLI operativo en `Operations`:
+    - uptime por servicio 24h/7d
+    - MTTA/MTTR 30d
+    - incidentes por severidad
+    - backlog abierto por edad
+    - objetivo vs real con targets configurables
+  - KPI semanal operativo:
+    - snapshots persistidos en `ops_weekly_snapshots`
+    - funcion `ops-weekly-kpi`
+    - vista historica de ultimas 8 semanas en `Operations`
+  - nueva funcion `ops-autopilot` para ejecucion automatica de remediacion + escalado.
+  - nuevo helper y tests para decisiones de autopilot/escalado:
+    - `src/lib/opsAutopilot.ts`
+    - `src/lib/opsAutopilot.test.ts`
+    - `src/lib/opsAutopilot.integration.test.ts`
+
+### Changed
+- `supabase/config.toml` incorpora `ops-autopilot` y `ops-weekly-kpi`.
+- `Operations` incorpora acciones manuales de autopilot/KPI y estado de salud del bridge de automatizacion.
+- Scheduler 24/7 definido en GitHub Actions (`.github/workflows/ops-automation-24x7.yml`) para ejecutar:
+  - `ops-autopilot` cada 5 minutos
+  - `ops-weekly-kpi` semanal (lunes)
+- Nueva guia de integracion: `docs/integrations/ops-automation-scheduler.md`.
+
+## [1.0.7] - 2026-02-16
+
+### Added
+- Sistema de tickets end-to-end en ChefOs:
+  - tablas `support_tickets` + `support_ticket_events` + RLS y triggers de auditoria
+  - cola de integracion `support_ticket_outbox` (reintentos/backoff) e inbox idempotente `support_ticket_inbox`
+  - logs estructurados de bridge `support_ticket_bridge_logs`
+  - vistas de metricas `support_ticket_metrics_view` y salud `support_ticket_bridge_health_view`
+  - nueva pagina `Tickets` con:
+    - listado con filtros por estado, severidad, prioridad, fechas y requester
+    - bandeja inicial `received`/sin triage
+    - detalle con timeline completo
+    - acciones rapidas: estado, asignacion, notas, cerrar/reabrir
+  - nuevos hooks de dominio `useTickets`
+  - nuevo dominio `ticketing` y `openclawBridge` con tests unitarios
+- Bridge OpenClaw:
+  - edge function outbound `openclaw-ticket-dispatch`
+  - edge function inbound `openclaw-ticket-callback`
+  - firma HMAC, validacion temporal, deduplicacion por `event_id`, y actualizacion idempotente de ticket
+  - soporte de eventos:
+    - salida: `ticket.created`, `ticket.updated`, `ticket.escalated`
+    - entrada: `ticket.triaged`, `ticket.analysis_ready`, `ticket.solution_proposed`, `ticket.resolved`, `ticket.needs_human`
+- Documentacion de contrato API en `docs/integrations/openclaw-ticketing.md`.
+
+### Changed
+- Router y sidebar incorporan modulo `Tickets` (`/tickets`).
+- `Operations` incorpora indicador de salud del bridge de tickets OpenClaw.
+- `supabase/config.toml` incorpora funciones `openclaw-ticket-dispatch` y `openclaw-ticket-callback`.
+
 ## [1.0.6] - 2026-02-16
 
 ### Added

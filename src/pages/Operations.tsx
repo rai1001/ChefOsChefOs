@@ -3,13 +3,13 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   Activity,
-  AlertTriangle,
+  Bot,
   BellRing,
-  CheckCircle2,
+  CalendarClock,
+  Gauge,
   Loader2,
   RefreshCw,
   Siren,
-  Wrench,
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -37,15 +37,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useRequireHotel } from "@/hooks/useCurrentHotel";
 import {
   useAddOpsIncidentNote,
+  useGenerateOpsWeeklyKpi,
+  useOpsAutomationRuns,
+  useOpsAutopilotHealth,
   useCreateOpsIncident,
   useCreateServiceHeartbeat,
   useDispatchOpsAlert,
   useOpsCenterMonitoring,
+  useOpsEscalations,
   useOpsIncidentEvents,
   useOpsIncidents,
   useOpsRunbooks,
+  useOpsSliPanel,
+  useOpsSloTargets,
+  useOpsWeeklySnapshots,
+  useRunOpsAutopilot,
   useUpdateOpsIncidentStatus,
 } from "@/hooks/useOpsCenter";
+import { useTicketBridgeHealth } from "@/hooks/useTickets";
 import { cn } from "@/lib/utils";
 import { serviceKeyLabel, type OpsServiceKey, type OpsServiceStatus } from "@/lib/opsWatchdog";
 
@@ -85,17 +94,55 @@ function watchdogTone(severity: "critical" | "warning") {
     : "border-warning/30 bg-warning/10 text-warning";
 }
 
+function bridgeTone(status: "up" | "degraded" | "down") {
+  if (status === "up") return "bg-success/10 text-success border-success/30";
+  if (status === "degraded") return "bg-warning/10 text-warning border-warning/30";
+  return "bg-destructive/10 text-destructive border-destructive/30";
+}
+
+function mtaTone(actual: number, target: number) {
+  if (actual <= target) return "text-success";
+  if (actual <= target * 1.25) return "text-warning";
+  return "text-destructive";
+}
+
+function escalationTone(state: "none" | "escalated" | "reminder" | "acknowledged") {
+  if (state === "escalated") return "bg-destructive/10 text-destructive border-destructive/30";
+  if (state === "reminder") return "bg-warning/10 text-warning border-warning/30";
+  if (state === "acknowledged") return "bg-success/10 text-success border-success/30";
+  return "bg-muted text-muted-foreground border-border";
+}
+
+function formatMinutes(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  return `${Math.round(value)} min`;
+}
+
+function formatPct(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  return `${value.toFixed(1)}%`;
+}
+
 const Operations = () => {
   const { hasHotel, error: hotelError } = useRequireHotel();
   const monitoringQuery = useOpsCenterMonitoring();
   const incidentsQuery = useOpsIncidents({ includeResolved: true });
   const runbooksQuery = useOpsRunbooks();
+  const escalationsQuery = useOpsEscalations({ onlyActive: true });
+  const automationRunsQuery = useOpsAutomationRuns(30);
+  const sliPanelQuery = useOpsSliPanel();
+  const sloTargetsQuery = useOpsSloTargets();
+  const weeklySnapshotsQuery = useOpsWeeklySnapshots(8);
+  const autopilotHealthQuery = useOpsAutopilotHealth();
+  const ticketBridgeHealthQuery = useTicketBridgeHealth();
 
   const createIncident = useCreateOpsIncident();
   const updateIncident = useUpdateOpsIncidentStatus();
   const addIncidentNote = useAddOpsIncidentNote();
   const createHeartbeat = useCreateServiceHeartbeat();
   const dispatchAlert = useDispatchOpsAlert();
+  const runAutopilot = useRunOpsAutopilot();
+  const generateWeeklyKpi = useGenerateOpsWeeklyKpi();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
@@ -122,6 +169,12 @@ const Operations = () => {
   const selectedIncident = openIncidents[0] ?? null;
   const incidentEventsQuery = useOpsIncidentEvents(selectedIncident?.id ?? null);
   const runbooks = runbooksQuery.data ?? [];
+  const escalations = escalationsQuery.data ?? [];
+  const automationRuns = automationRunsQuery.data ?? [];
+  const sliServices = sliPanelQuery.data?.services ?? [];
+  const incidentSli = sliPanelQuery.data?.incidents ?? null;
+  const sloTargets = sloTargetsQuery.data;
+  const weeklySnapshots = weeklySnapshotsQuery.data ?? [];
 
   const handleCreateIncident = async () => {
     if (!createTitle.trim()) return;
@@ -169,6 +222,14 @@ const Operations = () => {
     setHeartbeatDetail("");
   };
 
+  const handleRunAutopilot = async () => {
+    await runAutopilot.mutateAsync({ maxIncidents: 150 });
+  };
+
+  const handleGenerateKpi = async () => {
+    await generateWeeklyKpi.mutateAsync();
+  };
+
   if (!hasHotel) {
     return (
       <MainLayout title="Operacion 24/7" subtitle="Monitoreo remoto y gestion de incidentes">
@@ -195,6 +256,14 @@ const Operations = () => {
             <Button size="sm" variant="outline" onClick={() => monitoringQuery.refetch()} disabled={monitoringQuery.isFetching}>
               <RefreshCw className={cn("mr-2 h-4 w-4", monitoringQuery.isFetching && "animate-spin")} />
               Refrescar
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleRunAutopilot} disabled={runAutopilot.isPending}>
+              {runAutopilot.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
+              Ejecutar autopilot
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleGenerateKpi} disabled={generateWeeklyKpi.isPending}>
+              {generateWeeklyKpi.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarClock className="mr-2 h-4 w-4" />}
+              Generar KPI semanal
             </Button>
             <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
               <Siren className="mr-2 h-4 w-4" />
@@ -248,13 +317,16 @@ const Operations = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Uptime 24h</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="font-display text-2xl font-semibold">{summary ? `${summary.uptime24hPct}%` : "--"}</p>
+              {sloTargets && (
+                <p className="text-xs text-muted-foreground">objetivo {sloTargets.uptime_target_24h.toFixed(2)}%</p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -279,6 +351,40 @@ const Operations = () => {
             </CardHeader>
             <CardContent>
               <p className="font-display text-2xl font-semibold">{summary?.maxQueueDepth ?? 0}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Autopilot bridge</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <Badge
+                variant="outline"
+                className={bridgeTone(autopilotHealthQuery.data?.bridge_status ?? "degraded")}
+              >
+                {(autopilotHealthQuery.data?.bridge_status ?? "degraded").toUpperCase()}
+              </Badge>
+              <p className="text-xs text-muted-foreground">
+                ok/fail/skip 30m: {(autopilotHealthQuery.data?.success_count_30m ?? 0)}/
+                {(autopilotHealthQuery.data?.failed_count_30m ?? 0)}/
+                {(autopilotHealthQuery.data?.skipped_count_30m ?? 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Bridge tickets OpenClaw</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <Badge
+                variant="outline"
+                className={bridgeTone(ticketBridgeHealthQuery.data?.bridge_status ?? "degraded")}
+              >
+                {(ticketBridgeHealthQuery.data?.bridge_status ?? "degraded").toUpperCase()}
+              </Badge>
+              <p className="text-xs text-muted-foreground">
+                pending/failed: {(ticketBridgeHealthQuery.data?.pending_due ?? 0)}/{(ticketBridgeHealthQuery.data?.failed_count ?? 0)}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -328,6 +434,281 @@ const Operations = () => {
         <div className="grid gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">SLO / SLI operativo</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">MTTA 30d</p>
+                  <p
+                    className={cn(
+                      "font-display text-xl font-semibold",
+                      mtaTone(incidentSli?.mtta_minutes_30d ?? 0, sloTargets?.mtta_target_minutes ?? 10),
+                    )}
+                  >
+                    {formatMinutes(incidentSli?.mtta_minutes_30d)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    objetivo {formatMinutes(sloTargets?.mtta_target_minutes)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">MTTR 30d</p>
+                  <p
+                    className={cn(
+                      "font-display text-xl font-semibold",
+                      mtaTone(incidentSli?.mttr_minutes_30d ?? 0, sloTargets?.mttr_target_minutes ?? 60),
+                    )}
+                  >
+                    {formatMinutes(incidentSli?.mttr_minutes_30d)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    objetivo {formatMinutes(sloTargets?.mttr_target_minutes)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">Backlog abierto</p>
+                  <p
+                    className={cn(
+                      "font-display text-xl font-semibold",
+                      mtaTone(
+                        incidentSli?.open_backlog_by_age.total_open ?? 0,
+                        sloTargets?.max_open_incidents_target ?? 5,
+                      ),
+                    )}
+                  >
+                    {incidentSli?.open_backlog_by_age.total_open ?? 0}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    objetivo max {sloTargets?.max_open_incidents_target ?? 5}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">Incidentes 30d por severidad</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {Object.entries(incidentSli?.incidents_by_severity_30d ?? {}).length === 0 ? (
+                      <Badge variant="outline">Sin datos</Badge>
+                    ) : (
+                      Object.entries(incidentSli?.incidents_by_severity_30d ?? {}).map(([severity, total]) => (
+                        <Badge key={severity} variant="outline" className={severityTone(severity as "critical" | "high" | "medium" | "low")}>
+                          {severity}: {total}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm font-medium">Backlog por edad</p>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border border-border p-2">{"<30m: "}{incidentSli?.open_backlog_by_age.lt_30m ?? 0}</div>
+                  <div className="rounded border border-border p-2">{"30m-2h: "}{incidentSli?.open_backlog_by_age.btw_30m_2h ?? 0}</div>
+                  <div className="rounded border border-border p-2">{"2h-8h: "}{incidentSli?.open_backlog_by_age.btw_2h_8h ?? 0}</div>
+                  <div className="rounded border border-border p-2">{">=8h: "}{incidentSli?.open_backlog_by_age.gte_8h ?? 0}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Uptime por servicio (24h/7d)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sliPanelQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando SLI por servicio...
+                </div>
+              ) : sliServices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay muestras de uptime disponibles.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Servicio</TableHead>
+                      <TableHead>24h</TableHead>
+                      <TableHead>7d</TableHead>
+                      <TableHead>Objetivo</TableHead>
+                      <TableHead>Cola max 24h</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sliServices.map((service) => {
+                      const serviceTarget = Number(
+                        sloTargets?.service_targets?.[service.service_key] ??
+                          sloTargets?.uptime_target_7d ??
+                          99.9,
+                      );
+                      return (
+                        <TableRow key={service.service_key}>
+                          <TableCell>{serviceKeyLabel(service.service_key)}</TableCell>
+                          <TableCell className={cn(mtaTone(service.uptime_24h_pct, sloTargets?.uptime_target_24h ?? 99.5))}>
+                            {formatPct(service.uptime_24h_pct)}
+                          </TableCell>
+                          <TableCell className={cn(mtaTone(service.uptime_7d_pct, serviceTarget))}>
+                            {formatPct(service.uptime_7d_pct)}
+                          </TableCell>
+                          <TableCell>{formatPct(serviceTarget)}</TableCell>
+                          <TableCell>{service.max_queue_24h ?? 0}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Escalado automatico activo</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {escalationsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando escalados...
+                </div>
+              ) : escalations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin escalados activos en este momento.</p>
+              ) : (
+                <div className="space-y-2">
+                  {escalations.slice(0, 10).map((escalation) => (
+                    <div key={escalation.id} className="rounded-lg border border-border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={severityTone(escalation.severity)}>
+                            {escalation.severity}
+                          </Badge>
+                          <Badge variant="outline" className={escalationTone("escalated")}>
+                            activo
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          reminder #{escalation.reminder_count} · prox. {formatDateTime(escalation.next_reminder_at)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Incidente: {escalation.incident_id}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Auto-remediation trace (reciente)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {automationRunsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando ejecuciones...
+                </div>
+              ) : automationRuns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin ejecuciones de auto-remediation aun.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Accion</TableHead>
+                      <TableHead>Resultado</TableHead>
+                      <TableHead>Duracion</TableHead>
+                      <TableHead>Retry</TableHead>
+                      <TableHead>Fecha</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {automationRuns.slice(0, 12).map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell className="text-xs">{run.action_key}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              run.result_status === "success" && "bg-success/10 text-success border-success/30",
+                              run.result_status === "failed" && "bg-destructive/10 text-destructive border-destructive/30",
+                              run.result_status === "skipped" && "bg-warning/10 text-warning border-warning/30",
+                            )}
+                          >
+                            {run.result_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{run.duration_ms ?? 0} ms</TableCell>
+                        <TableCell className="text-xs">{run.retry_count}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDateTime(run.created_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">KPI semanal operativo (ultimas 8 semanas)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {weeklySnapshotsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Cargando snapshots semanales...
+              </div>
+            ) : weeklySnapshots.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No hay snapshots. Ejecuta \"Generar KPI semanal\" para crear la primera serie.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Semana</TableHead>
+                    <TableHead>Incidentes</TableHead>
+                    <TableHead>% auto-resueltos</TableHead>
+                    <TableHead>MTTA</TableHead>
+                    <TableHead>MTTR</TableHead>
+                    <TableHead>Top causas raiz</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {weeklySnapshots.map((snapshot) => (
+                    <TableRow key={snapshot.id}>
+                      <TableCell className="text-xs">
+                        {snapshot.week_start} - {snapshot.week_end}
+                      </TableCell>
+                      <TableCell>{snapshot.total_incidents}</TableCell>
+                      <TableCell>{formatPct(snapshot.auto_resolved_pct)}</TableCell>
+                      <TableCell>{formatMinutes(snapshot.mtta_minutes)}</TableCell>
+                      <TableCell>{formatMinutes(snapshot.mttr_minutes)}</TableCell>
+                      <TableCell className="text-xs">
+                        {(snapshot.root_causes ?? [])
+                          .slice(0, 3)
+                          .map((root) => `${root.cause} (${root.count})`)
+                          .join(", ") || "Sin datos"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Incidentes activos</CardTitle>
             </CardHeader>
             <CardContent>
@@ -345,6 +726,8 @@ const Operations = () => {
                       <TableHead>Incidente</TableHead>
                       <TableHead>Severidad</TableHead>
                       <TableHead>Estado</TableHead>
+                      <TableHead>Escalado</TableHead>
+                      <TableHead>Auto-remediation</TableHead>
                       <TableHead>Accion</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -363,6 +746,24 @@ const Operations = () => {
                         <TableCell>
                           <Badge variant="outline" className={statusTone(incident.status)}>
                             {incident.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={escalationTone(incident.escalation_state)}>
+                            {incident.escalation_state} L{incident.escalation_level}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              incident.auto_remediation_state === "success" && "bg-success/10 text-success border-success/30",
+                              incident.auto_remediation_state === "failed" && "bg-destructive/10 text-destructive border-destructive/30",
+                              incident.auto_remediation_state === "running" && "bg-info/10 text-info border-info/30",
+                              incident.auto_remediation_state === "cooldown" && "bg-warning/10 text-warning border-warning/30",
+                            )}
+                          >
+                            {incident.auto_remediation_state}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -432,7 +833,10 @@ const Operations = () => {
                       (incidentEventsQuery.data ?? []).map((event) => (
                         <div key={event.id} className="rounded-lg border border-border p-2">
                           <div className="flex items-center justify-between gap-2">
-                            <Badge variant="outline">{event.event_type}</Badge>
+                            <div className="flex items-center gap-1">
+                              <Badge variant="outline">{event.event_type}</Badge>
+                              <Badge variant="outline" className="text-[10px]">{event.actor_type}</Badge>
+                            </div>
                             <span className="text-[11px] text-muted-foreground">{formatDateTime(event.created_at)}</span>
                           </div>
                           {event.note && <p className="mt-1 text-xs">{event.note}</p>}

@@ -33,6 +33,7 @@ const Purchases = lazy(() => import("./pages/Purchases"));
 const Suppliers = lazy(() => import("./pages/Suppliers"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const Tickets = lazy(() => import("./pages/Tickets"));
 const DailyPlan = lazy(() => import("./pages/DailyPlan"));
 const Shifts = lazy(() => import("./pages/Shifts"));
 const MyShift = lazy(() => import("./pages/MyShift"));
@@ -193,6 +194,11 @@ const App = () => (
               <Route path="/tasks" element={
                 <ProtectedRoute requiredRoles={['admin', 'jefe_cocina', 'produccion']}>
                   <Tasks />
+                </ProtectedRoute>
+              } />
+              <Route path="/tickets" element={
+                <ProtectedRoute requiredRoles={['admin', 'jefe_cocina', 'maitre', 'produccion', 'rrhh', 'super_admin']}>
+                  <Tickets />
                 </ProtectedRoute>
               } />
               <Route path="/daily-plan" element={

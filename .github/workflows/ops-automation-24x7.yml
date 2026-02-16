@@ -1,0 +1,107 @@
+name: Ops Automation 24x7
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+    - cron: "10 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task to run"
+        required: true
+        default: "autopilot"
+        type: choice
+        options:
+          - autopilot
+          - weekly_kpi
+          - both
+      hotel_id:
+        description: "Optional hotel_id override"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  autopilot:
+    name: Run Ops Autopilot
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'autopilot' || github.event.inputs.task == 'both'))
+      ||
+      (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *')
+    steps:
+      - name: Trigger ops-autopilot
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.CHEFOS_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.CHEFOS_SUPABASE_ANON_KEY }}
+          OPS_AUTOPILOT_TOKEN: ${{ secrets.CHEFOS_OPS_AUTOPILOT_TOKEN }}
+          DEFAULT_HOTEL_ID: ${{ secrets.CHEFOS_DEFAULT_HOTEL_ID }}
+          INPUT_HOTEL_ID: ${{ github.event.inputs.hotel_id }}
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_URL:?Missing CHEFOS_SUPABASE_URL}"
+          : "${SUPABASE_ANON_KEY:?Missing CHEFOS_SUPABASE_ANON_KEY}"
+          : "${OPS_AUTOPILOT_TOKEN:?Missing CHEFOS_OPS_AUTOPILOT_TOKEN}"
+
+          HOTEL_ID="${INPUT_HOTEL_ID:-${DEFAULT_HOTEL_ID:-}}"
+          BODY='{"max_incidents":150}'
+          if [[ -n "${HOTEL_ID}" ]]; then
+            BODY="{\"hotel_id\":\"${HOTEL_ID}\",\"max_incidents\":150}"
+          fi
+
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "${SUPABASE_URL}/functions/v1/ops-autopilot" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "x-ops-autopilot-token: ${OPS_AUTOPILOT_TOKEN}" \
+            --data "${BODY}")
+
+          cat response.json
+          if [[ "${HTTP_CODE}" -ge 300 ]]; then
+            echo "ops-autopilot failed with status ${HTTP_CODE}" >&2
+            exit 1
+          fi
+
+  weekly-kpi:
+    name: Run Weekly KPI Snapshot
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'weekly_kpi' || github.event.inputs.task == 'both'))
+      ||
+      (github.event_name == 'schedule' && github.event.schedule == '10 0 * * 1')
+    steps:
+      - name: Trigger ops-weekly-kpi
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.CHEFOS_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.CHEFOS_SUPABASE_ANON_KEY }}
+          OPS_WEEKLY_KPI_TOKEN: ${{ secrets.CHEFOS_OPS_WEEKLY_KPI_TOKEN }}
+          DEFAULT_HOTEL_ID: ${{ secrets.CHEFOS_DEFAULT_HOTEL_ID }}
+          INPUT_HOTEL_ID: ${{ github.event.inputs.hotel_id }}
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_URL:?Missing CHEFOS_SUPABASE_URL}"
+          : "${SUPABASE_ANON_KEY:?Missing CHEFOS_SUPABASE_ANON_KEY}"
+          : "${OPS_WEEKLY_KPI_TOKEN:?Missing CHEFOS_OPS_WEEKLY_KPI_TOKEN}"
+
+          HOTEL_ID="${INPUT_HOTEL_ID:-${DEFAULT_HOTEL_ID:-}}"
+          BODY='{}'
+          if [[ -n "${HOTEL_ID}" ]]; then
+            BODY="{\"hotel_id\":\"${HOTEL_ID}\"}"
+          fi
+
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "${SUPABASE_URL}/functions/v1/ops-weekly-kpi" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "x-ops-kpi-token: ${OPS_WEEKLY_KPI_TOKEN}" \
+            --data "${BODY}")
+
+          cat response.json
+          if [[ "${HTTP_CODE}" -ge 300 ]]; then
+            echo "ops-weekly-kpi failed with status ${HTTP_CODE}" >&2
+            exit 1
+          fi
