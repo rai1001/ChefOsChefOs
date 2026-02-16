@@ -32,6 +32,25 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.6] - 2026-02-16
+
+### Added
+- Fase 6 inicial (modo 24/7 y operacion remota):
+  - nuevo Centro de Operacion 24/7 (`/operations`) con monitoreo, watchdog, incidentes y runbooks
+  - reporte automatico de heartbeat web app desde `MainLayout` (throttle 5 min por hotel)
+  - utilidades `opsWatchdog` para consolidar uptime 24h, stale heartbeats y backlog de colas
+  - pruebas unitarias `src/lib/opsWatchdog.test.ts`
+  - migracion `20260216190000_f6_ops_center.sql` con:
+    - `ops_service_heartbeats`
+    - `ops_incidents`
+    - `ops_incident_events`
+    - `ops_runbooks` (seed por hotel)
+
+### Changed
+- Sidebar agrega acceso `Operacion 24/7` para roles operativos.
+- `HealthBar` redirige a `/operations` para roles operativos y mantiene `/status` para `super_admin`.
+- Router principal incorpora ruta protegida `/operations`.
+
 ## [1.0.5] - 2026-02-16
 
 ### Added

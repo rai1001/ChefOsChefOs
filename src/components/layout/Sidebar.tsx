@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
-const getMenuItems = (isSuperAdmin: boolean) => {
+const getMenuItems = (isSuperAdmin: boolean, canOperations: boolean) => {
   const items = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
     { icon: Calendar, label: "Eventos", path: "/events" },
@@ -38,6 +38,10 @@ const getMenuItems = (isSuperAdmin: boolean) => {
     { icon: Users, label: "Personal", path: "/staff" },
     { icon: Settings, label: "Ajustes", path: "/settings" },
   ];
+
+  if (canOperations) {
+    items.push({ icon: Activity, label: "Operacion 24/7", path: "/operations" });
+  }
   
   if (isSuperAdmin) {
     items.push({ icon: Activity, label: "Estado 24/7", path: "/status" });
@@ -52,7 +56,13 @@ export function Sidebar() {
   const location = useLocation();
   const { roles } = useAuth();
   const isSuperAdmin = roles.includes('super_admin');
-  const menuItems = getMenuItems(isSuperAdmin);
+  const canOperations =
+    isSuperAdmin ||
+    roles.includes("admin") ||
+    roles.includes("jefe_cocina") ||
+    roles.includes("produccion") ||
+    roles.includes("rrhh");
+  const menuItems = getMenuItems(isSuperAdmin, canOperations);
 
   return (
     <aside

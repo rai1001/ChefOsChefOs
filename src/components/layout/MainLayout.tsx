@@ -5,6 +5,7 @@ import { AIChatWidget } from "@/components/ai/AIChatWidget";
 import { QuickOpsBar } from "@/components/mobile/QuickOpsBar";
 import { MobileBottomNav } from "@/components/mobile/MobileBottomNav";
 import { HealthBar } from "./HealthBar";
+import { useOpsHeartbeatReporter } from "@/hooks/useOpsCenter";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -13,6 +14,8 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
+  useOpsHeartbeatReporter();
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />

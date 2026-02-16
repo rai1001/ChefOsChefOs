@@ -16,7 +16,14 @@ function OverallIcon({ status }: { status: "healthy" | "warning" | "critical" | 
 export function HealthBar() {
   const { data, isLoading } = useSystemHealth();
   const { roles } = useAuth();
+
   const isSuperAdmin = roles.includes("super_admin");
+  const canAccessOperations =
+    isSuperAdmin ||
+    roles.includes("admin") ||
+    roles.includes("jefe_cocina") ||
+    roles.includes("produccion") ||
+    roles.includes("rrhh");
 
   return (
     <div className="border-b border-border bg-muted/20">
@@ -39,9 +46,11 @@ export function HealthBar() {
           </Badge>
         ))}
 
-        {isSuperAdmin && (
+        {canAccessOperations && (
           <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs ml-auto">
-            <Link to="/status">Ver estado técnico</Link>
+            <Link to={isSuperAdmin ? "/status" : "/operations"}>
+              {isSuperAdmin ? "Ver estado tecnico" : "Centro 24/7"}
+            </Link>
           </Button>
         )}
       </div>
