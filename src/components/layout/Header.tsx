@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { HotelSelector } from "@/components/settings/HotelSelector";
+import { usePriorityNotifications } from "@/hooks/usePriorityNotifications";
+import { useAlertSubscriptions } from "@/hooks/useAlertSubscriptions";
 
 interface HeaderProps {
   title: string;
@@ -23,6 +25,10 @@ interface HeaderProps {
 export function Header({ title, subtitle }: HeaderProps) {
   const { profile, roles, signOut } = useAuth();
   const navigate = useNavigate();
+  const { data: priorityNotifications = [] } = usePriorityNotifications();
+  const { data: alertSubscriptions = [] } = useAlertSubscriptions();
+  const enabledEmailNotifications = alertSubscriptions.some((subscription) => subscription.enabled);
+  const criticalNotificationCount = priorityNotifications.filter((notification) => notification.level === "critical").length;
 
   const handleSignOut = async () => {
     await signOut();
@@ -43,6 +49,12 @@ export function Header({ title, subtitle }: HeaderProps) {
       rrhh: "RRHH",
     };
     return labels[role] || role;
+  };
+
+  const notificationTone = (level: "critical" | "medium" | "low") => {
+    if (level === "critical") return "border-destructive/30 bg-destructive/10 text-destructive";
+    if (level === "medium") return "border-warning/30 bg-warning/10 text-warning";
+    return "border-border bg-muted/40 text-foreground";
   };
 
   return (
@@ -69,9 +81,53 @@ export function Header({ title, subtitle }: HeaderProps) {
         </div>
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative h-9 w-9">
-          <Bell className="h-4 w-4 text-muted-foreground" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative h-9 w-9">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              {priorityNotifications.length > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
+                  {Math.min(priorityNotifications.length, 9)}
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel className="flex items-center justify-between">
+              <span>Notificaciones</span>
+              {criticalNotificationCount > 0 && (
+                <Badge variant="destructive" className="h-5">{criticalNotificationCount} criticas</Badge>
+              )}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {priorityNotifications.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-muted-foreground">
+                Sin alertas prioritarias asignadas.
+              </div>
+            ) : (
+              <div className="space-y-2 px-2 py-2">
+                {priorityNotifications.slice(0, 4).map((notification) => (
+                  <button
+                    key={notification.id}
+                    type="button"
+                    onClick={() => navigate(notification.ctaTo)}
+                    className={`w-full rounded-md border px-2 py-2 text-left transition-colors hover:bg-muted ${notificationTone(notification.level)}`}
+                  >
+                    <p className="text-xs font-medium">{notification.title}</p>
+                    <p className="text-[11px] opacity-80">{notification.detail}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate("/settings")}>
+              Email operativo: {enabledEmailNotifications ? "activo" : "inactivo"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/settings")}>
+              Push/WhatsApp: opcional (configurable)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* User Menu */}
         <DropdownMenu>

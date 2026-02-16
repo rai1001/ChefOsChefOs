@@ -28,6 +28,7 @@ import { useUpcomingForecasts } from "@/hooks/useForecasts";
 import { useIncompleteDeliveries, usePendingDeliveries } from "@/hooks/usePurchases";
 import { useExecutiveDashboardMetrics, type AlertSeverity } from "@/hooks/useExecutiveDashboard";
 import { ForecastXLSXImport } from "@/components/import/ForecastXLSXImport";
+import { useAuth } from "@/hooks/useAuth";
 
 function formatCurrency(value: number) {
   return `EUR ${value.toLocaleString("es-ES", {
@@ -44,6 +45,8 @@ function alertTone(severity: AlertSeverity) {
 
 const Dashboard = () => {
   const [viewMode, setViewMode] = useState<"summary" | "detail">("summary");
+  const { hasManagementAccess, hasRole } = useAuth();
+  const canCreateTask = hasManagementAccess() || hasRole("super_admin");
   const { isLoading: statsLoading } = useDashboardStats();
   const { data: upcomingEvents = [] } = useUpcomingEvents(7);
   const { data: expiringLots = [] } = useExpiringLots(7);
@@ -98,12 +101,22 @@ const Dashboard = () => {
                 Crear compra
               </Link>
             </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/tasks?quick=new-task">
-                <ClipboardList className="h-4 w-4 mr-2" />
-                Crear tarea
-              </Link>
-            </Button>
+            {canCreateTask && (
+              <>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/tasks?quick=new-task&service=breakfast">
+                    <ClipboardList className="h-4 w-4 mr-2" />
+                    Tarea desayuno
+                  </Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/tasks?quick=new-task&service=event">
+                    <ClipboardList className="h-4 w-4 mr-2" />
+                    Tarea evento
+                  </Link>
+                </Button>
+              </>
+            )}
             <Button asChild size="sm">
               <Link to="/forecast">
                 <TrendingUp className="h-4 w-4 mr-2" />
@@ -241,7 +254,14 @@ const Dashboard = () => {
             <div className="rounded-2xl border border-border bg-card shadow-sm">
               <div className="flex items-center justify-between p-4 border-b border-border">
                 <h3 className="font-display text-lg font-semibold">Tareas prioritarias</h3>
-                <Link to="/tasks?quick=new-task" className="text-xs text-primary">Crear rapida</Link>
+                {canCreateTask ? (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Link to="/tasks?quick=new-task&service=breakfast" className="text-primary">Desayuno</Link>
+                    <Link to="/tasks?quick=new-task&service=event" className="text-primary">Evento</Link>
+                  </div>
+                ) : (
+                  <Link to="/tasks" className="text-xs text-primary">Ver tareas</Link>
+                )}
               </div>
               <div className="p-4 space-y-2">
                 {pendingTasks.slice(0, 6).map((task) => (

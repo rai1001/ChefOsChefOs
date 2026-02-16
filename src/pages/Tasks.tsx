@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,7 @@ import { format, parseISO, isToday, isTomorrow, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import {
   useTasks,
   useTaskStats,
@@ -56,6 +57,13 @@ import {
   ProductionTaskWithRelations,
 } from "@/hooks/useTasks";
 import { useEvents } from "@/hooks/useEvents";
+import {
+  getDefaultTemplateForService,
+  getTaskTemplateById,
+  getTaskTemplatesByService,
+  TASK_SERVICE_LABELS,
+  type TaskServiceType,
+} from "@/lib/taskTemplates";
 
 const Tasks = () => {
   const [shiftFilter, setShiftFilter] = useState<string>("all");
@@ -64,6 +72,10 @@ const Tasks = () => {
   const [editingTask, setEditingTask] = useState<ProductionTaskWithRelations | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const { hasManagementAccess, hasRole } = useAuth();
+  const canCreateTask = hasManagementAccess() || hasRole("super_admin");
+  const [templateService, setTemplateService] = useState<"manual" | TaskServiceType>("manual");
+  const [templateId, setTemplateId] = useState("none");
 
   const [formData, setFormData] = useState({
     title: "",
@@ -90,20 +102,77 @@ const Tasks = () => {
   const completeTask = useCompleteTask();
   const deleteTask = useDeleteTask();
 
+  const availableTemplates = useMemo(
+    () => (templateService === "manual" ? [] : getTaskTemplatesByService(templateService)),
+    [templateService],
+  );
+
+  const applyTemplate = (nextTemplateId: string) => {
+    if (nextTemplateId === "none") {
+      setTemplateId("none");
+      return;
+    }
+
+    const selected = getTaskTemplateById(nextTemplateId);
+    if (!selected) return;
+
+    setTemplateService(selected.serviceType);
+    setTemplateId(selected.id);
+    setFormData((prev) => ({
+      ...prev,
+      title: selected.title,
+      description: selected.description,
+      shift: selected.shift,
+      priority: selected.priority,
+    }));
+  };
+
+  const openCreateForService = (serviceType: TaskServiceType) => {
+    if (!canCreateTask) return;
+
+    const selected = getDefaultTemplateForService(serviceType);
+    setTemplateService(serviceType);
+    setTemplateId(selected?.id ?? "none");
+    setFormData({
+      title: selected?.title ?? "",
+      description: selected?.description ?? "",
+      task_date: format(new Date(), "yyyy-MM-dd"),
+      shift: selected?.shift ?? "morning",
+      priority: selected?.priority ?? "medium",
+      event_id: "",
+    });
+    setIsCreateOpen(true);
+  };
+
   useEffect(() => {
     const quick = searchParams.get("quick");
     if (!quick) return;
 
     if (quick === "new-task") {
-      setFormData({
-        title: "",
-        description: "",
-        task_date: format(new Date(), "yyyy-MM-dd"),
-        shift: "morning",
-        priority: "medium",
-        event_id: "",
-      });
-      setIsCreateOpen(true);
+      const serviceParam = searchParams.get("service");
+      const templateParam = searchParams.get("template");
+      const serviceType =
+        serviceParam === "breakfast" || serviceParam === "event"
+          ? serviceParam
+          : "manual";
+
+      if (canCreateTask) {
+        const selectedTemplate =
+          getTaskTemplateById(templateParam) ||
+          (serviceType !== "manual" ? getDefaultTemplateForService(serviceType) : null);
+
+        setTemplateService(serviceType);
+        setTemplateId(selectedTemplate?.id ?? "none");
+        setFormData({
+          title: selectedTemplate?.title ?? "",
+          description: selectedTemplate?.description ?? "",
+          task_date: format(new Date(), "yyyy-MM-dd"),
+          shift: selectedTemplate?.shift ?? "morning",
+          priority: selectedTemplate?.priority ?? "medium",
+          event_id: "",
+        });
+        setIsCreateOpen(true);
+      }
     }
 
     if (quick === "start") {
@@ -123,8 +192,10 @@ const Tasks = () => {
 
     const next = new URLSearchParams(searchParams);
     next.delete("quick");
+    next.delete("service");
+    next.delete("template");
     setSearchParams(next, { replace: true });
-  }, [tasks, searchParams, setSearchParams, startTask, completeTask]);
+  }, [tasks, searchParams, setSearchParams, startTask, completeTask, canCreateTask]);
 
   const getDateLabel = (dateStr: string) => {
     const date = parseISO(dateStr);
@@ -142,6 +213,8 @@ const Tasks = () => {
   }, {} as Record<string, ProductionTaskWithRelations[]>);
 
   const resetForm = () => {
+    setTemplateService("manual");
+    setTemplateId("none");
     setFormData({
       title: "",
       description: "",
@@ -153,11 +226,14 @@ const Tasks = () => {
   };
 
   const handleOpenCreate = () => {
+    if (!canCreateTask) return;
     resetForm();
     setIsCreateOpen(true);
   };
 
   const handleOpenEdit = (task: ProductionTaskWithRelations) => {
+    setTemplateService("manual");
+    setTemplateId("none");
     setFormData({
       title: task.title,
       description: task.description || "",
@@ -249,10 +325,26 @@ const Tasks = () => {
           </Select>
         </div>
 
-        <Button size="sm" className="h-9" onClick={handleOpenCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nueva Tarea
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canCreateTask ? (
+            <>
+              <Button size="sm" variant="outline" className="h-9" onClick={() => openCreateForService("breakfast")}>
+                Plantilla desayuno
+              </Button>
+              <Button size="sm" variant="outline" className="h-9" onClick={() => openCreateForService("event")}>
+                Plantilla evento
+              </Button>
+              <Button size="sm" className="h-9" onClick={handleOpenCreate}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nueva Tarea
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No tienes permiso para crear tareas.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Tasks by Date */}
@@ -262,10 +354,20 @@ const Tasks = () => {
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : Object.keys(groupedTasks).length === 0 ? (
-          <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
+          <div className="flex h-40 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border">
             <p className="text-muted-foreground">
               {tasks.length === 0 ? "No hay tareas programadas" : "No hay tareas con los filtros seleccionados"}
             </p>
+            {canCreateTask && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => openCreateForService("breakfast")}>
+                  Crear desayuno
+                </Button>
+                <Button size="sm" onClick={handleOpenCreate}>
+                  Crear tarea
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           Object.entries(groupedTasks).map(([dateLabel, dateTasks]) => (
@@ -398,6 +500,61 @@ const Tasks = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {!editingTask && canCreateTask && (
+              <div className="grid grid-cols-2 gap-4 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="template-service">Tipo de servicio</Label>
+                  <Select
+                    value={templateService}
+                    onValueChange={(value) => {
+                      if (value === "manual") {
+                        setTemplateService("manual");
+                        setTemplateId("none");
+                        return;
+                      }
+
+                      const nextService = value as TaskServiceType;
+                      const selected = getDefaultTemplateForService(nextService);
+                      setTemplateService(nextService);
+                      if (selected) {
+                        applyTemplate(selected.id);
+                      } else {
+                        setTemplateId("none");
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="template-service">
+                      <SelectValue placeholder="Manual" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">Manual</SelectItem>
+                      <SelectItem value="breakfast">{TASK_SERVICE_LABELS.breakfast}</SelectItem>
+                      <SelectItem value="event">{TASK_SERVICE_LABELS.event}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="template-id">Plantilla</Label>
+                  <Select
+                    value={templateId}
+                    onValueChange={applyTemplate}
+                    disabled={templateService === "manual"}
+                  >
+                    <SelectTrigger id="template-id">
+                      <SelectValue placeholder="Selecciona plantilla" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin plantilla</SelectItem>
+                      {availableTemplates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="title">Título *</Label>
               <Input
@@ -458,6 +615,7 @@ const Tasks = () => {
                     <SelectItem value="low">Baja</SelectItem>
                     <SelectItem value="medium">Media</SelectItem>
                     <SelectItem value="high">Alta</SelectItem>
+                    <SelectItem value="urgent">Urgente</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

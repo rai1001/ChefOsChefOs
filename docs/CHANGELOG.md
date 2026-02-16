@@ -32,6 +32,33 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.4] - 2026-02-16
+
+### Added
+- Fase 4 inicial (Tareas, Turnos y Personal):
+  - vista personal `Mi turno` con panel `Mi turno + mis tareas` (`/my-shift`)
+  - plantillas operativas de tareas por tipo de servicio (`desayuno`/`evento`)
+  - boton rapido de creacion de tarea desde barra movil y dashboard
+  - centro de notificaciones priorizadas en `Header` (in-app)
+  - nueva migracion `20260216173000_f4_staff_self_select.sql` para lectura segura de ficha propia de staff (`user_id = auth.uid()`)
+- Nueva logica de cobertura por franja:
+  - utilidad `shiftCoverage` para calcular requerido vs asignado por dia/turno
+  - tests de cobertura para baseline, sobrecarga y agrupacion por fecha
+
+### Changed
+- `Tasks` incorpora selector de servicio + plantilla con autocompletado de:
+  - titulo
+  - descripcion
+  - turno
+  - prioridad (incluye `urgent`)
+- `Shifts` ahora muestra validaciones de cobertura en tiempo real:
+  - resumen de huecos por mes
+  - marcadores por dia en cabecera
+  - previsualizacion de cobertura antes de guardar una asignacion
+  - validacion de horario `inicio < fin`
+- `Header` deja de ser icono pasivo y muestra alertas accionables por prioridad con acceso rapido a ajustes de canal.
+- Navegacion lateral incluye acceso directo a `Mi Turno`.
+
 ## [1.0.3] - 2026-02-16
 
 ### Added

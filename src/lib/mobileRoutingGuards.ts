@@ -1,4 +1,5 @@
 export type QuickActionId =
+  | "new_task"
   | "receive_purchase"
   | "record_waste"
   | "start_task"
@@ -11,6 +12,7 @@ export interface QuickActionGuardInput {
 }
 
 const ALLOWED_ROLES_BY_ACTION: Record<QuickActionId, string[]> = {
+  new_task: ["admin", "jefe_cocina"],
   receive_purchase: ["admin", "jefe_cocina", "produccion"],
   record_waste: ["admin", "jefe_cocina", "produccion"],
   start_task: ["admin", "jefe_cocina", "produccion"],

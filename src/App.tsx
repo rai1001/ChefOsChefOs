@@ -33,6 +33,7 @@ const Inventory = lazy(() => import("./pages/Inventory"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const DailyPlan = lazy(() => import("./pages/DailyPlan"));
 const Shifts = lazy(() => import("./pages/Shifts"));
+const MyShift = lazy(() => import("./pages/MyShift"));
 const Settings = lazy(() => import("./pages/Settings"));
 const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -180,6 +181,11 @@ const App = () => (
               <Route path="/shifts" element={
                 <ProtectedRoute requiredRoles={['admin', 'jefe_cocina', 'rrhh']}>
                   <Shifts />
+                </ProtectedRoute>
+              } />
+              <Route path="/my-shift" element={
+                <ProtectedRoute>
+                  <MyShift />
                 </ProtectedRoute>
               } />
               <Route path="/settings" element={

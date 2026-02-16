@@ -38,14 +38,30 @@ export interface ProductionTaskInsert {
   event_id?: string | null;
 }
 
-export function useTasks(options?: { startDate?: string; endDate?: string; shift?: string; status?: string }) {
+export interface UseTasksOptions {
+  startDate?: string;
+  endDate?: string;
+  shift?: string;
+  status?: string;
+  assignedTo?: string | null;
+}
+
+export function useTasks(options?: UseTasksOptions) {
   const hotelId = useCurrentHotelId();
   const today = new Date();
   const defaultStart = format(subDays(today, 7), "yyyy-MM-dd");
   const defaultEnd = format(addDays(today, 14), "yyyy-MM-dd");
 
   return useQuery({
-    queryKey: ["production_tasks", hotelId, options?.startDate, options?.endDate, options?.shift, options?.status],
+    queryKey: [
+      "production_tasks",
+      hotelId,
+      options?.startDate,
+      options?.endDate,
+      options?.shift,
+      options?.status,
+      options?.assignedTo,
+    ],
     queryFn: async () => {
       if (!hotelId) return [] as ProductionTaskWithRelations[];
       let query = supabase
@@ -65,6 +81,9 @@ export function useTasks(options?: { startDate?: string; endDate?: string; shift
       }
       if (options?.status && options.status !== "all") {
         query = query.eq("status", options.status);
+      }
+      if (options?.assignedTo) {
+        query = query.eq("assigned_to", options.assignedTo);
       }
 
       const { data, error } = await query;

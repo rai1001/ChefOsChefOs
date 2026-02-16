@@ -24,7 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Calendar, ChevronLeft, ChevronRight, Loader2, Moon, Sun, Sunset } from "lucide-react";
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, Loader2, Moon, Sun, Sunset } from "lucide-react";
 import { 
   addMonths,
   eachDayOfInterval,
@@ -38,7 +38,9 @@ import {
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useEvents } from "@/hooks/useEvents";
+import { useForecasts } from "@/hooks/useForecasts";
 import { useRequireHotel } from "@/hooks/useCurrentHotel";
+import { useToast } from "@/hooks/use-toast";
 import { useStaff, Staff } from "@/hooks/useStaff";
 import {
   useDeleteStaffShiftAssignment,
@@ -46,10 +48,44 @@ import {
   useUpsertStaffShiftAssignment,
 } from "@/hooks/useStaffShiftAssignments";
 import { dbShiftToUi, makeShiftKey, uiShiftToDb, UiShiftType } from "@/lib/staffShiftAssignments";
+import {
+  buildShiftCoverageRows,
+  getCoverageRowsByDate,
+  type CoverageSeverity,
+  type CoverageShift,
+} from "@/lib/shiftCoverage";
+
+function severityBadgeTone(severity: CoverageSeverity) {
+  if (severity === "critical") return "bg-destructive/15 text-destructive border-destructive/30";
+  if (severity === "medium") return "bg-warning/15 text-warning border-warning/30";
+  if (severity === "low") return "bg-info/15 text-info border-info/30";
+  return "bg-success/10 text-success border-success/20";
+}
+
+function severityDotTone(severity: CoverageSeverity) {
+  if (severity === "critical") return "bg-destructive";
+  if (severity === "medium") return "bg-warning";
+  if (severity === "low") return "bg-info";
+  return "bg-success";
+}
+
+function coverageShiftLabel(shift: CoverageShift) {
+  if (shift === "morning") return "Manana";
+  if (shift === "afternoon") return "Tarde";
+  return "Noche";
+}
+
+function shiftSeverityRank(severity: CoverageSeverity) {
+  if (severity === "critical") return 3;
+  if (severity === "medium") return 2;
+  if (severity === "low") return 1;
+  return 0;
+}
 
 const Shifts = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const { toast } = useToast();
 
   const { hasHotel, error: hotelError } = useRequireHotel();
   const { data: staffList = [], isLoading: staffLoading } = useStaff();
@@ -73,6 +109,7 @@ const Shifts = () => {
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
   const { data: events = [] } = useEvents({ startDate, endDate });
+  const { data: forecasts = [], isLoading: forecastsLoading } = useForecasts({ startDate, endDate });
 
   const { data: shiftAssignments = [], isLoading: shiftsLoading } = useStaffShiftAssignments({
     startDate,
@@ -106,6 +143,36 @@ const Shifts = () => {
     return map;
   }, [shiftAssignments]);
 
+  const coverageRows = useMemo(
+    () =>
+      buildShiftCoverageRows({
+        startDate,
+        endDate,
+        events,
+        forecasts,
+        assignments: shiftAssignments.map((assignment) => ({
+          shift_date: assignment.shift_date,
+          shift_type: assignment.shift_type,
+        })),
+      }),
+    [startDate, endDate, events, forecasts, shiftAssignments],
+  );
+
+  const coverageRowsByDate = useMemo(() => getCoverageRowsByDate(coverageRows), [coverageRows]);
+
+  const coverageSummary = useMemo(() => {
+    const gapRows = coverageRows.filter((row) => row.deficit > 0);
+    const criticalRows = coverageRows.filter((row) => row.severity === "critical");
+    const daysWithGap = new Set(gapRows.map((row) => row.date)).size;
+
+    return {
+      totalSlots: coverageRows.length,
+      criticalSlots: criticalRows.length,
+      gapSlots: gapRows.length,
+      daysWithGap,
+    };
+  }, [coverageRows]);
+
   const getShiftIcon = (shift: UiShiftType | null) => {
     if (!shift) return null;
     switch (shift) {
@@ -130,6 +197,41 @@ const Shifts = () => {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
 
+  const mapUiShiftToCoverage = (shift: UiShiftType | null): CoverageShift | null => {
+    if (!shift) return null;
+    if (shift === "M") return "morning";
+    if (shift === "T") return "afternoon";
+    return "night";
+  };
+
+  const projectedCoverageRows = useMemo(() => {
+    if (!editing) return [];
+    const baseRows = coverageRowsByDate.get(editing.date) ?? [];
+    if (baseRows.length === 0) return [];
+
+    const existing = shiftsByKey.get(makeShiftKey(editing.staff.id, editing.date));
+    const existingShift = mapUiShiftToCoverage(existing ? dbShiftToUi(existing.shift_type) : null);
+    const nextShift = mapUiShiftToCoverage(selectedShift);
+
+    return baseRows.map((row) => {
+      let assigned = row.assigned;
+
+      if (existingShift === row.shift) assigned -= 1;
+      if (nextShift === row.shift) assigned += 1;
+
+      const deficit = Math.max(0, row.required - assigned);
+      const severity: CoverageSeverity =
+        deficit <= 0 ? "ok" : deficit === 1 ? "low" : deficit === 2 ? "medium" : "critical";
+
+      return {
+        ...row,
+        assigned,
+        deficit,
+        severity,
+      };
+    });
+  }, [coverageRowsByDate, editing, selectedShift, shiftsByKey]);
+
   const openEditor = (staff: Staff, date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
     const existing = shiftsByKey.get(makeShiftKey(staff.id, dateStr));
@@ -151,11 +253,27 @@ const Shifts = () => {
 
   const saveShift = async () => {
     if (!editing) return;
+    if (startTime && endTime && startTime >= endTime) {
+      toast({
+        variant: "destructive",
+        title: "Horario invalido",
+        description: "La hora de fin debe ser posterior a la hora de inicio.",
+      });
+      return;
+    }
 
     const existing = shiftsByKey.get(makeShiftKey(editing.staff.id, editing.date));
     if (!selectedShift) {
       if (existing) {
         await deleteShift.mutateAsync({ staffId: editing.staff.id, shiftDate: editing.date });
+      }
+      const dateWithGap = projectedCoverageRows.filter((row) => row.deficit > 0);
+      if (dateWithGap.length > 0) {
+        const worst = [...dateWithGap].sort((a, b) => b.deficit - a.deficit)[0];
+        toast({
+          title: "Cobertura incompleta",
+          description: `${coverageShiftLabel(worst.shift)} queda con deficit de ${worst.deficit} persona(s).`,
+        });
       }
       closeEditor();
       return;
@@ -171,6 +289,14 @@ const Shifts = () => {
       start_time: startTime || null,
       end_time: endTime || null,
     });
+    const dateWithGap = projectedCoverageRows.filter((row) => row.deficit > 0);
+    if (dateWithGap.length > 0) {
+      const worst = [...dateWithGap].sort((a, b) => b.deficit - a.deficit)[0];
+      toast({
+        title: "Validacion de cobertura",
+        description: `${coverageShiftLabel(worst.shift)} sigue con deficit de ${worst.deficit} persona(s).`,
+      });
+    }
     closeEditor();
   };
 
@@ -190,12 +316,19 @@ const Shifts = () => {
                 const dateKey = format(day, "yyyy-MM-dd");
                 const dayEvents = eventsMap.get(dateKey) || [];
                 const hasEvents = dayEvents.length > 0;
+                const dayCoverage = coverageRowsByDate.get(dateKey) ?? [];
+                const worstCoverage = dayCoverage.reduce<null | (typeof dayCoverage)[number]>((current, row) => {
+                  if (!current) return row;
+                  return shiftSeverityRank(row.severity) > shiftSeverityRank(current.severity) ? row : current;
+                }, null);
                 
                 return (
                   <th 
                     key={day.toISOString()} 
                     className={cn(
                       "p-2 text-center font-medium min-w-[36px] relative",
+                      worstCoverage?.severity === "critical" && "bg-destructive/10",
+                      worstCoverage?.severity === "medium" && "bg-warning/10",
                       isWeekend(day) && "bg-muted/50"
                     )}
                   >
@@ -229,6 +362,28 @@ const Shifts = () => {
                               {dayEvents.length > 3 && (
                                 <li className="text-muted-foreground">+{dayEvents.length - 3} más</li>
                               )}
+                            </ul>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {worstCoverage && worstCoverage.deficit > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="absolute -bottom-0.5 -right-1.5 flex h-2.5 w-2.5 items-center justify-center">
+                              <span className={cn("h-2 w-2 rounded-full", severityDotTone(worstCoverage.severity))} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs">
+                            <p className="text-xs font-medium mb-1">Cobertura por franja</p>
+                            <ul className="space-y-1 text-xs">
+                              {dayCoverage.map((row) => (
+                                <li key={row.key} className="flex items-center justify-between gap-3">
+                                  <span>{coverageShiftLabel(row.shift)}</span>
+                                  <span className={cn("rounded border px-1.5 py-0.5", severityBadgeTone(row.severity))}>
+                                    {row.assigned}/{row.required}
+                                  </span>
+                                </li>
+                              ))}
                             </ul>
                           </TooltipContent>
                         </Tooltip>
@@ -302,7 +457,7 @@ const Shifts = () => {
             </p>
           </div>
         </div>
-      ) : staffLoading || shiftsLoading ? (
+      ) : staffLoading || shiftsLoading || forecastsLoading ? (
         <div className="flex items-center justify-center h-40">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -360,6 +515,21 @@ const Shifts = () => {
         <p className="text-sm text-muted-foreground">Toca una celda para asignar un turno</p>
       </div>
 
+      <div className="grid gap-3 mb-6 sm:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Dias con huecos</p>
+          <p className="font-display text-2xl font-semibold">{coverageSummary.daysWithGap}</p>
+        </div>
+        <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
+          <p className="text-xs text-muted-foreground">Franjas con deficit</p>
+          <p className="font-display text-2xl font-semibold text-warning">{coverageSummary.gapSlots}</p>
+        </div>
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-xs text-muted-foreground">Franjas criticas</p>
+          <p className="font-display text-2xl font-semibold text-destructive">{coverageSummary.criticalSlots}</p>
+        </div>
+      </div>
+
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 mb-6 p-3 rounded-lg bg-muted/30">
         <span className="text-sm font-medium">Leyenda:</span>
@@ -385,7 +555,13 @@ const Shifts = () => {
           <span className="relative flex h-2.5 w-2.5">
             <span className="h-2 w-2 rounded-full bg-warning" />
           </span>
-          <span className="text-sm">Día con evento</span>
+          <span className="text-sm">Dia con evento</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="h-2 w-2 rounded-full bg-destructive" />
+          </span>
+          <span className="text-sm">Cobertura critica</span>
         </div>
       </div>
 
@@ -435,6 +611,28 @@ const Shifts = () => {
                 <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               </div>
             </div>
+
+            {editing && projectedCoverageRows.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-medium text-muted-foreground">Validacion de cobertura para {editing.date}</p>
+                  {projectedCoverageRows.some((row) => row.deficit > 0) && (
+                    <AlertTriangle className="h-4 w-4 text-warning" />
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {projectedCoverageRows.map((row) => (
+                    <div key={row.key} className="rounded border border-border bg-card p-2">
+                      <p className="text-xs text-muted-foreground">{coverageShiftLabel(row.shift)}</p>
+                      <p className="text-sm font-medium">{row.assigned} / {row.required}</p>
+                      <p className={cn("mt-1 inline-flex rounded border px-1.5 py-0.5 text-[11px]", severityBadgeTone(row.severity))}>
+                        {row.deficit > 0 ? `Falta ${row.deficit}` : "OK"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="flex items-center justify-between gap-2 sm:justify-between">
@@ -455,3 +653,4 @@ const Shifts = () => {
 };
 
 export default Shifts;
+

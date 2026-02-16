@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Package, AlertTriangle, Play, CheckCircle2 } from "lucide-react";
+import { Package, AlertTriangle, Play, CheckCircle2, PlusCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { canUseQuickAction } from "@/lib/mobileRoutingGuards";
 
@@ -16,10 +16,11 @@ export function QuickOpsBar() {
 
   const canReceive = canUseQuickAction("receive_purchase", { isMobile, hasHotel, role });
   const canWaste = canUseQuickAction("record_waste", { isMobile, hasHotel, role });
+  const canNewTask = canUseQuickAction("new_task", { isMobile, hasHotel, role });
   const canStart = canUseQuickAction("start_task", { isMobile, hasHotel, role });
   const canComplete = canUseQuickAction("complete_task", { isMobile, hasHotel, role });
 
-  if (!canReceive && !canWaste && !canStart && !canComplete) return null;
+  if (!canReceive && !canWaste && !canNewTask && !canStart && !canComplete) return null;
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur px-3 py-2 lg:hidden">
@@ -37,6 +38,14 @@ export function QuickOpsBar() {
             <Link to="/inventory?quick=waste">
               <AlertTriangle className="h-4 w-4 mr-1" />
               Merma
+            </Link>
+          </Button>
+        )}
+        {canNewTask && (
+          <Button asChild size="sm" variant="outline" className="flex-1">
+            <Link to="/tasks?quick=new-task&service=breakfast">
+              <PlusCircle className="h-4 w-4 mr-1" />
+              Tarea
             </Link>
           </Button>
         )}

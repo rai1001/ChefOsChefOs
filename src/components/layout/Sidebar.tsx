@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  User,
   Shield,
   Activity
 } from "lucide-react";
@@ -31,6 +32,7 @@ const getMenuItems = (isSuperAdmin: boolean) => {
     { icon: ShoppingCart, label: "Compras", path: "/purchases" },
     { icon: Warehouse, label: "Inventario", path: "/inventory" },
     { icon: ClipboardList, label: "Tareas", path: "/tasks" },
+    { icon: User, label: "Mi Turno", path: "/my-shift" },
     { icon: Calendar, label: "Plan Diario", path: "/daily-plan" },
     { icon: Clock, label: "Turnos", path: "/shifts" },
     { icon: Users, label: "Personal", path: "/staff" },
