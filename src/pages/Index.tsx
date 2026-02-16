@@ -17,6 +17,7 @@ import {
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   useDashboardStats,
@@ -75,8 +76,21 @@ const Dashboard = () => {
   if (statsLoading) {
     return (
       <MainLayout title="Dashboard" subtitle="Centro de decisiones operativo">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+          </div>
+          <Skeleton className="h-36 rounded-2xl" />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Skeleton className="h-52 rounded-2xl" />
+            <Skeleton className="h-52 rounded-2xl" />
+          </div>
+          <div className="flex items-center justify-center py-2">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
         </div>
       </MainLayout>
     );

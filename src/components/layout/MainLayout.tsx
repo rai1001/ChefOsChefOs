@@ -3,6 +3,7 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { AIChatWidget } from "@/components/ai/AIChatWidget";
 import { QuickOpsBar } from "@/components/mobile/QuickOpsBar";
+import { MobileBottomNav } from "@/components/mobile/MobileBottomNav";
 import { HealthBar } from "./HealthBar";
 
 interface MainLayoutProps {
@@ -18,12 +19,13 @@ export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
       <div className="lg:pl-64 transition-all duration-300">
         <Header title={title} subtitle={subtitle} />
         <HealthBar />
-        <main className="p-4 lg:p-6 pb-24 lg:pb-6">
+        <main className="p-4 lg:p-6 pb-32 lg:pb-6">
           {children}
         </main>
       </div>
       <AIChatWidget />
       <QuickOpsBar />
+      <MobileBottomNav />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   MutationCache,
   QueryCache,
@@ -13,6 +14,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { ThemeProvider } from "next-themes";
 import { shouldRetryQueryError } from "@/lib/networkRetry";
 import {
   captureRuntimeError,
@@ -100,22 +102,41 @@ function RuntimeErrorLifecycle() {
   return null;
 }
 
+function RouteFallback() {
+  const isMobile = typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false;
+
+  if (!isMobile) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen space-y-4 bg-background p-4">
+      <Skeleton className="h-12 w-2/3 rounded-xl" />
+      <div className="grid gap-3 grid-cols-2">
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-24 rounded-xl" />
+      </div>
+      <Skeleton className="h-40 rounded-2xl" />
+      <Skeleton className="h-40 rounded-2xl" />
+    </div>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <RuntimeErrorLifecycle />
-          <Suspense
-            fallback={
-              <div className="min-h-screen bg-background flex items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            }
-          >
-            <Routes>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="chefos-theme">
+      <TooltipProvider>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <RuntimeErrorLifecycle />
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/accept-invitation" element={<AcceptInvitation />} />
               <Route path="/status" element={
@@ -199,11 +220,12 @@ const App = () => (
                 </ProtectedRoute>
               } />
               <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </AuthProvider>
-    </TooltipProvider>
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </AuthProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

@@ -1,4 +1,5 @@
-import { Bell, Search, LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, Search, LogOut, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { HotelSelector } from "@/components/settings/HotelSelector";
 import { usePriorityNotifications } from "@/hooks/usePriorityNotifications";
 import { useAlertSubscriptions } from "@/hooks/useAlertSubscriptions";
+import { useTheme } from "next-themes";
 
 interface HeaderProps {
   title: string;
@@ -25,10 +27,16 @@ interface HeaderProps {
 export function Header({ title, subtitle }: HeaderProps) {
   const { profile, roles, signOut } = useAuth();
   const navigate = useNavigate();
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const { data: priorityNotifications = [] } = usePriorityNotifications();
   const { data: alertSubscriptions = [] } = useAlertSubscriptions();
   const enabledEmailNotifications = alertSubscriptions.some((subscription) => subscription.enabled);
   const criticalNotificationCount = priorityNotifications.filter((notification) => notification.level === "critical").length;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -79,6 +87,21 @@ export function Header({ title, subtitle }: HeaderProps) {
             className="w-56 pl-10 h-9 text-sm focus-visible:ring-primary"
           />
         </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={() => setTheme((resolvedTheme ?? theme) === "dark" ? "light" : "dark")}
+          aria-label="Cambiar modo de color"
+        >
+          {mounted && (resolvedTheme ?? theme) === "dark" ? (
+            <Sun className="h-4 w-4 text-warning" />
+          ) : (
+            <Moon className="h-4 w-4 text-muted-foreground" />
+          )}
+        </Button>
 
         {/* Notifications */}
         <DropdownMenu>

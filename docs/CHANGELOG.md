@@ -32,6 +32,23 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.5] - 2026-02-16
+
+### Added
+- Fase 5 inicial (UX movil first):
+  - nueva navegacion inferior movil con 5 areas clave segun rol (`Inicio`, `Eventos`, `Compras`, `Stock`, `Mi turno`)
+  - acciones rapidas flotantes en movil (recibir compra, merma, nueva tarea, iniciar/completar tarea)
+  - skeleton fallback para carga de rutas en movil y skeletons operativos en `Dashboard` y `Mi turno`
+  - modo oscuro funcional con `ThemeProvider` y toggle en header
+
+### Changed
+- `MainLayout` ahora reserva espacio inferior para navegacion movil sin solapar contenido.
+- `AIChatWidget` reposicionado en movil para coexistir con navegacion inferior y acciones flotantes.
+- Controles tactiles actualizados para movil (>=44px):
+  - `Button` (sizes `default/sm/icon`)
+  - `Input`
+  - `SelectTrigger`
+
 ## [1.0.4] - 2026-02-16
 
 ### Added

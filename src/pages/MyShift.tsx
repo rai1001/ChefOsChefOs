@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, Clock3, Loader2, Play } from "lucide-react
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useMyShiftSnapshot } from "@/hooks/useMyShiftSnapshot";
 import { useCompleteTask, useStartTask, useTasks } from "@/hooks/useTasks";
@@ -51,8 +52,20 @@ const MyShift = () => {
   if (myShiftQuery.isLoading || tasksQuery.isLoading) {
     return (
       <MainLayout title="Mi turno" subtitle="Mi turno + mis tareas">
-        <div className="flex h-56 items-center justify-center">
-          <Loader2 className="h-7 w-7 animate-spin text-primary" />
+        <div className="space-y-4">
+          <div className="grid gap-3 lg:grid-cols-3">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+          </div>
+          <Skeleton className="h-56 rounded-2xl" />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Skeleton className="h-44 rounded-2xl" />
+            <Skeleton className="h-44 rounded-2xl" />
+          </div>
+          <div className="flex items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
         </div>
       </MainLayout>
     );
