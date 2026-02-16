@@ -3,6 +3,7 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { AIChatWidget } from "@/components/ai/AIChatWidget";
 import { QuickOpsBar } from "@/components/mobile/QuickOpsBar";
+import { HealthBar } from "./HealthBar";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -16,6 +17,7 @@ export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
       <Sidebar />
       <div className="lg:pl-64 transition-all duration-300">
         <Header title={title} subtitle={subtitle} />
+        <HealthBar />
         <main className="p-4 lg:p-6 pb-24 lg:pb-6">
           {children}
         </main>

@@ -42,6 +42,7 @@ export function useDashboardStats() {
         .from("events")
         .select("id, pax, event_date")
         .eq("hotel_id", hotelId)
+        .neq("status", "cancelled")
         .gte("event_date", monthStart)
         .lte("event_date", monthEnd);
 
@@ -108,6 +109,7 @@ export function useUpcomingEvents(days: number = 7) {
           menu:menus(id, name)
         `)
         .eq("hotel_id", hotelId)
+        .neq("status", "cancelled")
         .gte("event_date", monthStart)
         .lte("event_date", monthEnd)
         .order("event_date", { ascending: true });

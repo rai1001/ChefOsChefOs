@@ -2,6 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentHotelId } from "@/hooks/useCurrentHotel";
+import type { EventStatusNormalized, EventTypeNormalized } from "@/lib/eventNormalization";
+import {
+  dedupeNormalizedEvents,
+  normalizeEventInsert,
+  normalizeEventStatus,
+  normalizeEventType,
+} from "@/lib/eventNormalization";
 
 export interface Event {
   id: string;
@@ -11,9 +18,12 @@ export interface Event {
   venue_id: string | null;
   menu_id: string | null;
   pax: number;
+  pax_estimated: number;
+  pax_confirmed: number;
+  event_type: EventTypeNormalized;
   client_name: string | null;
   client_contact: string | null;
-  status: string | null;
+  status: EventStatusNormalized | "in_progress" | "completed" | null;
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -32,10 +42,42 @@ export interface EventInsert {
   venue_id?: string | null;
   menu_id?: string | null;
   pax?: number;
+  pax_estimated?: number | null;
+  pax_confirmed?: number | null;
+  event_type?: string | null;
   client_name?: string | null;
   client_contact?: string | null;
-  status?: string;
+  status?: string | null;
   notes?: string | null;
+}
+
+interface EventBaseRow {
+  id: string;
+  name: string;
+  event_date: string;
+  event_time: string | null;
+  venue_id: string | null;
+  menu_id: string | null;
+  pax: number | null;
+  pax_estimated: number | null;
+  pax_confirmed: number | null;
+  event_type: string | null;
+  client_name: string | null;
+  client_contact: string | null;
+  status: string | null;
+  notes: string | null;
+}
+
+function hasOwn<T extends object>(target: T, key: keyof T): boolean {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
+
+function normalizeEventMutationPayload(input: EventInsert) {
+  const normalized = normalizeEventInsert(input);
+  if (!normalized) {
+    throw new Error("Evento invalido: revisa nombre y fecha.");
+  }
+  return normalized;
 }
 
 export function useEvents(options?: { startDate?: string; endDate?: string }) {
@@ -122,10 +164,17 @@ export function useCreateEvent() {
   return useMutation({
     mutationFn: async (event: EventInsert) => {
       if (!hotelId) throw new Error("No hay hotel seleccionado");
-      
+
+      const normalized = normalizeEventMutationPayload(event);
       const { data, error } = await supabase
         .from("events")
-        .insert({ ...event, hotel_id: hotelId })
+        .insert({
+          ...normalized,
+          menu_id: event.menu_id ?? null,
+          client_name: event.client_name ?? null,
+          client_contact: event.client_contact ?? null,
+          hotel_id: hotelId,
+        })
         .select()
         .single();
 
@@ -136,7 +185,7 @@ export function useCreateEvent() {
       queryClient.invalidateQueries({ queryKey: ["events"] });
       toast({
         title: "Evento creado",
-        description: "El evento se ha añadido correctamente",
+        description: "El evento se ha anadido correctamente",
       });
     },
     onError: (error) => {
@@ -155,9 +204,43 @@ export function useUpdateEvent() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Event> & { id: string }) => {
+      const { data: currentRow, error: currentError } = await supabase
+        .from("events")
+        .select(
+          "id, name, event_date, event_time, venue_id, menu_id, pax, pax_estimated, pax_confirmed, event_type, client_name, client_contact, status, notes",
+        )
+        .eq("id", id)
+        .single();
+
+      if (currentError) throw currentError;
+      const current = currentRow as EventBaseRow;
+
+      const merged: EventInsert = {
+        name: hasOwn(updates, "name") ? (updates.name as string) : current.name,
+        event_date: hasOwn(updates, "event_date") ? (updates.event_date as string) : current.event_date,
+        event_time: hasOwn(updates, "event_time") ? updates.event_time : current.event_time,
+        venue_id: hasOwn(updates, "venue_id") ? updates.venue_id : current.venue_id,
+        menu_id: hasOwn(updates, "menu_id") ? updates.menu_id : current.menu_id,
+        pax: hasOwn(updates, "pax") ? updates.pax ?? undefined : current.pax ?? undefined,
+        pax_estimated: hasOwn(updates, "pax_estimated") ? updates.pax_estimated : current.pax_estimated,
+        pax_confirmed: hasOwn(updates, "pax_confirmed") ? updates.pax_confirmed : current.pax_confirmed,
+        event_type: hasOwn(updates, "event_type") ? updates.event_type : current.event_type,
+        client_name: hasOwn(updates, "client_name") ? updates.client_name : current.client_name,
+        client_contact: hasOwn(updates, "client_contact") ? updates.client_contact : current.client_contact,
+        status: hasOwn(updates, "status") ? updates.status : current.status,
+        notes: hasOwn(updates, "notes") ? updates.notes : current.notes,
+      };
+
+      const normalized = normalizeEventMutationPayload(merged);
+
       const { data, error } = await supabase
         .from("events")
-        .update(updates)
+        .update({
+          ...normalized,
+          menu_id: merged.menu_id ?? null,
+          client_name: merged.client_name ?? null,
+          client_contact: merged.client_contact ?? null,
+        })
         .eq("id", id)
         .select()
         .single();
@@ -220,9 +303,18 @@ export function useBulkInsertEvents() {
   return useMutation({
     mutationFn: async (events: EventInsert[]) => {
       if (!hotelId) throw new Error("No hay hotel seleccionado");
+      if (!events || events.length === 0) return { inserted: 0, duplicates: 0, rejected: 0 };
 
-      // Delete only previously-imported events (created_by IS NULL) for this hotel.
-      // This keeps manually-created events intact.
+      const normalizedRows = events
+        .map((event) => normalizeEventInsert(event))
+        .filter((event): event is NonNullable<typeof event> => Boolean(event));
+
+      if (normalizedRows.length === 0) {
+        throw new Error("No se encontraron filas validas para importar.");
+      }
+
+      const deduped = dedupeNormalizedEvents(normalizedRows);
+
       const { error: deleteError } = await supabase
         .from("events")
         .delete()
@@ -231,27 +323,34 @@ export function useBulkInsertEvents() {
 
       if (deleteError) throw deleteError;
 
-      // Add hotel_id to each event
-      const eventsWithHotel = events.map(e => ({
-        ...e,
+      const rowsToInsert = deduped.rows.map((event) => ({
+        ...event,
         hotel_id: hotelId,
       }));
 
       const { data, error } = await supabase
         .from("events")
-        .insert(eventsWithHotel)
-        .select();
+        .insert(rowsToInsert)
+        .select("id");
 
       if (error) throw error;
-      return data;
+
+      return {
+        inserted: data?.length ?? 0,
+        duplicates: deduped.duplicates,
+        rejected: Math.max(events.length - normalizedRows.length, 0),
+      };
     },
-    onSuccess: (data) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       queryClient.invalidateQueries({ queryKey: ["upcoming-events"] });
       toast({
         title: "Eventos importados",
-        description: `Se reemplazaron por ${data.length} eventos correctamente`,
+        description:
+          `Insertados ${result.inserted}. ` +
+          `Duplicados fusionados: ${result.duplicates}. ` +
+          `Filas invalidas: ${result.rejected}.`,
       });
     },
     onError: (error) => {
@@ -263,3 +362,5 @@ export function useBulkInsertEvents() {
     },
   });
 }
+
+export { normalizeEventStatus, normalizeEventType };

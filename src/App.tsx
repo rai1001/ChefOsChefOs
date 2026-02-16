@@ -1,16 +1,28 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { shouldRetryQueryError } from "@/lib/networkRetry";
+import {
+  captureRuntimeError,
+  setRuntimeErrorContext,
+} from "@/lib/runtimeErrorLogger";
 
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
+const Status = lazy(() => import("./pages/Status"));
 const Events = lazy(() => import("./pages/Events"));
 const Forecast = lazy(() => import("./pages/Forecast"));
 const Menus = lazy(() => import("./pages/Menus"));
@@ -26,7 +38,66 @@ const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Staff = lazy(() => import("./pages/Staff"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      void captureRuntimeError("query_error", error, {
+        queryKey: query.queryKey,
+      });
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      void captureRuntimeError("mutation_error", error, {
+        mutationKey: mutation.options.mutationKey ?? null,
+      });
+    },
+  }),
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) =>
+        failureCount < 3 && shouldRetryQueryError(error),
+      refetchOnReconnect: true,
+    },
+  },
+});
+
+function RuntimeErrorLifecycle() {
+  const location = useLocation();
+  const { user, profile, roles } = useAuth();
+
+  useEffect(() => {
+    setRuntimeErrorContext({
+      hotelId: profile?.current_hotel_id ?? null,
+      userId: user?.id ?? null,
+      route: location.pathname,
+      roles,
+    });
+  }, [location.pathname, profile?.current_hotel_id, roles, user?.id]);
+
+  useEffect(() => {
+    const onWindowError = (event: ErrorEvent) => {
+      void captureRuntimeError("window_error", event.error ?? event.message, {
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      void captureRuntimeError("unhandled_rejection", event.reason);
+    };
+
+    window.addEventListener("error", onWindowError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onWindowError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
+
+  return null;
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -35,6 +106,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <RuntimeErrorLifecycle />
           <Suspense
             fallback={
               <div className="min-h-screen bg-background flex items-center justify-center">
@@ -45,6 +117,11 @@ const App = () => (
             <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/accept-invitation" element={<AcceptInvitation />} />
+              <Route path="/status" element={
+                <ProtectedRoute requiredRoles={['super_admin']}>
+                  <Status />
+                </ProtectedRoute>
+              } />
               <Route path="/" element={
                 <ProtectedRoute>
                   <Index />

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCurrentHotelId } from "@/hooks/useCurrentHotel";
 import { useAuth } from "@/hooks/useAuth";
 import { buildOpsAuditInsert } from "@/lib/telemetry";
+import { captureRuntimeError } from "@/lib/runtimeErrorLogger";
 
 const supabaseUntyped = supabase as unknown as SupabaseClient;
 
@@ -23,7 +24,15 @@ export function useOpsTelemetry() {
       payload: event.payload,
       actorUserId: user?.id ?? null,
     });
-    await supabaseUntyped.from("ops_audit_log").insert(insert);
+    try {
+      await supabaseUntyped.from("ops_audit_log").insert(insert);
+    } catch (error) {
+      void captureRuntimeError("mutation_error", error, {
+        source: "useOpsTelemetry",
+        entity: event.entity,
+        action: event.action,
+      });
+    }
   };
 
   return { logEvent };

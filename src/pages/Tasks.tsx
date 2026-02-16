@@ -94,6 +94,18 @@ const Tasks = () => {
     const quick = searchParams.get("quick");
     if (!quick) return;
 
+    if (quick === "new-task") {
+      setFormData({
+        title: "",
+        description: "",
+        task_date: format(new Date(), "yyyy-MM-dd"),
+        shift: "morning",
+        priority: "medium",
+        event_id: "",
+      });
+      setIsCreateOpen(true);
+    }
+
     if (quick === "start") {
       const candidate = tasks.find((task) => task.status === "pending");
       if (candidate) void startTask.mutateAsync(candidate.id);

@@ -15,7 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Shield
+  Shield,
+  Activity
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,6 +38,7 @@ const getMenuItems = (isSuperAdmin: boolean) => {
   ];
   
   if (isSuperAdmin) {
+    items.push({ icon: Activity, label: "Estado 24/7", path: "/status" });
     items.push({ icon: Shield, label: "Super Admin", path: "/super-admin" });
   }
   

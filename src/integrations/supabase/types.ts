@@ -21,6 +21,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           event_date: string
+          event_type: string
           event_time: string | null
           hotel_id: string | null
           id: string
@@ -28,6 +29,8 @@ export type Database = {
           name: string
           notes: string | null
           pax: number
+          pax_confirmed: number
+          pax_estimated: number
           status: string | null
           updated_at: string
           venue_id: string | null
@@ -38,6 +41,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           event_date: string
+          event_type?: string
           event_time?: string | null
           hotel_id?: string | null
           id?: string
@@ -45,6 +49,8 @@ export type Database = {
           name: string
           notes?: string | null
           pax?: number
+          pax_confirmed?: number
+          pax_estimated?: number
           status?: string | null
           updated_at?: string
           venue_id?: string | null
@@ -55,6 +61,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           event_date?: string
+          event_type?: string
           event_time?: string | null
           hotel_id?: string | null
           id?: string
@@ -62,6 +69,8 @@ export type Database = {
           name?: string
           notes?: string | null
           pax?: number
+          pax_confirmed?: number
+          pax_estimated?: number
           status?: string | null
           updated_at?: string
           venue_id?: string | null

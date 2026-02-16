@@ -117,16 +117,29 @@ const Purchases = () => {
 
   useEffect(() => {
     const quick = searchParams.get("quick");
+    if (!quick) return;
+
+    if (quick === "new-purchase") {
+      setEditingPurchase(null);
+      setFormData({
+        supplier_id: suppliers[0]?.id || "",
+        expected_date: "",
+        notes: "",
+      });
+      setIsCreateOpen(true);
+    }
+
     if (quick === "receive") {
       const firstOrdered = purchases.find((purchase) => purchase.status === "ordered");
       if (firstOrdered) {
         setReceivingPurchase(firstOrdered);
       }
-      const next = new URLSearchParams(searchParams);
-      next.delete("quick");
-      setSearchParams(next, { replace: true });
     }
-  }, [purchases, searchParams, setSearchParams]);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("quick");
+    setSearchParams(next, { replace: true });
+  }, [purchases, searchParams, setSearchParams, suppliers]);
 
   // Group purchases by supplier
   const purchasesBySupplier = purchases.reduce((acc, purchase) => {

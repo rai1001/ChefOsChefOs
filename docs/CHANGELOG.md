@@ -32,6 +32,60 @@ Cada entrada sigue el formato:
 
 ---
 
+## [1.0.2] - 2026-02-16
+
+### Added
+- Fase 2 inicial (prevision + eventos) con normalizacion operativa:
+  - nuevo campo `event_type`
+  - nuevo campo `pax_estimated`
+  - nuevo campo `pax_confirmed`
+  - trigger de saneamiento en `events` para evitar registros huerfanos
+- Nueva logica reusable `src/lib/eventNormalization.ts` para estandarizar:
+  - nombre de evento
+  - estado (`draft/confirmed/cancelled`)
+  - tipo de evento
+  - pax estimado/confirmado
+  - deduplicado por fecha/salon/nombre
+- Hook `useProductionLoadAlerts` para alertas de sobrecarga de produccion por franja.
+
+### Changed
+- `Forecast` ahora incluye vista compacta configurable `7/14/30 dias`.
+- `ForecastXLSXImport` reforzado con:
+  - validacion de fechas y rangos numericos
+  - deteccion de filas invalidas
+  - deduplicado por fecha con reporte de estadisticas
+- `EventsXLSXImport` reforzado con:
+  - normalizacion de estado/tipo/pax
+  - deduplicado por fecha/salon/nombre
+  - reporte de validos, invalidos, duplicados y salones sin mapeo
+- `Events` actualizado con filtros por estado/tipo y formulario completo de campos normalizados.
+
+### Fixed
+- Las metricas de dashboard y ejecutivo ahora excluyen eventos cancelados en calculos operativos.
+
+## [1.0.1] - 2026-02-16
+
+### Added
+- Barra global de salud operativa (sistema, sync, jobs, errores, backup) visible en toda la app.
+- Nueva pagina tecnica `/status` protegida para `super_admin` con detalle de senales y actividad reciente.
+- Metricas ejecutivas adicionales en dashboard:
+  - coste diario estimado
+  - merma estimada (EUR y %)
+  - roturas de stock hoy/7d
+  - desviacion prevision vs real (proxy 7d)
+- Tarjeta de alertas priorizadas con CTA directo por alerta.
+- Soporte de quick actions:
+  - `/tasks?quick=new-task`
+  - `/purchases?quick=new-purchase`
+
+### Changed
+- Dashboard refactorizado con modo `Resumen` / `Detalle` para reducir saturacion visual.
+- Configuracion de `QueryClient` con captura centralizada de errores de query/mutation.
+- Cliente Supabase con fetch resiliente para reintentos en fallos transitorios de red.
+
+### Fixed
+- Correccion de flujo de build en dashboard al renderizar condiciones de texto JSX.
+
 ## [1.0.0] - 2025-02-02
 
 ### Added
